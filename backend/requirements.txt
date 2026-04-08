@@ -1,0 +1,16 @@
+fastapi>=0.100.0
+uvicorn[standard]>=0.24.0
+motor>=3.0
+pydantic>=2.0
+pydantic-settings>=2.0
+python-jose[cryptography]>=3.3.0
+# bcrypt 4.1+ breaks passlib 1.7.4 (__about__ removed; stricter 72-byte checks in self-tests)
+bcrypt>=3.2.0,<4.1
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.5
+slowapi>=0.1.9
+httpx>=0.24.0
+groq>=0.4.0
+vaderSentiment>=3.3.2
+opencv-python>=4.8.0
+numpy>=1.24.0
