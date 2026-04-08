@@ -1,0 +1,178 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 140 20% 97%;
+    --foreground: 160 30% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 160 30% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 160 30% 12%;
+
+    --primary: 160 35% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 140 20% 93%;
+    --secondary-foreground: 160 30% 18%;
+
+    --muted: 140 15% 94%;
+    --muted-foreground: 160 10% 45%;
+
+    --accent: 25 80% 70%;
+    --accent-foreground: 25 80% 20%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 140 15% 88%;
+    --input: 140 15% 88%;
+    --ring: 160 35% 40%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Custom MindEase tokens */
+    --sage: 150 25% 45%;
+    --sage-light: 150 30% 92%;
+    --teal: 175 40% 42%;
+    --teal-light: 175 40% 90%;
+    --peach: 25 85% 72%;
+    --peach-light: 25 60% 94%;
+    --lavender: 260 30% 70%;
+    --lavender-light: 260 30% 95%;
+    --cream: 40 30% 96%;
+    --warm-gray: 30 8% 55%;
+
+    --gradient-hero: linear-gradient(135deg, hsl(160 35% 40% / 0.08), hsl(175 40% 42% / 0.12), hsl(25 85% 72% / 0.08));
+    --gradient-glass: linear-gradient(135deg, rgba(255,255,255,0.7), rgba(255,255,255,0.3));
+    --gradient-card: linear-gradient(145deg, hsl(150 30% 92%), hsl(175 40% 90%));
+    --gradient-accent: linear-gradient(135deg, hsl(160 35% 40%), hsl(175 40% 42%));
+    --gradient-warm: linear-gradient(135deg, hsl(25 85% 72%), hsl(25 60% 65%));
+    --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.06);
+    --shadow-elevated: 0 20px 60px rgba(0, 0, 0, 0.08);
+  }
+
+  .dark {
+    --background: 160 20% 8%;
+    --foreground: 140 20% 95%;
+    --card: 160 20% 12%;
+    --card-foreground: 140 20% 95%;
+    --popover: 160 20% 12%;
+    --popover-foreground: 140 20% 95%;
+    --primary: 160 35% 55%;
+    --primary-foreground: 160 30% 8%;
+    --secondary: 160 15% 18%;
+    --secondary-foreground: 140 20% 90%;
+    --muted: 160 15% 18%;
+    --muted-foreground: 140 10% 55%;
+    --accent: 25 70% 60%;
+    --accent-foreground: 25 80% 95%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 160 15% 20%;
+    --input: 160 15% 20%;
+    --ring: 160 35% 55%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+  h1, h2, h3 {
+    font-family: 'Playfair Display', serif;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/60 backdrop-blur-xl border border-white/40 shadow-glass;
+    border-radius: var(--radius);
+  }
+  .glass-card-strong {
+    @apply bg-white/80 backdrop-blur-2xl border border-white/50 shadow-elevated;
+    border-radius: var(--radius);
+  }
+  .gradient-bg {
+    background: var(--gradient-hero);
+  }
+  .gradient-primary {
+    background: var(--gradient-accent);
+  }
+  .gradient-warm {
+    background: var(--gradient-warm);
+  }
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-accent);
+  }
+  .mindease-input {
+    @apply w-full px-4 py-3 rounded-xl bg-white/70 backdrop-blur-sm border border-border 
+           focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+           transition-all duration-300 placeholder:text-muted-foreground;
+  }
+  .btn-primary {
+    @apply px-6 py-3 rounded-xl font-semibold text-primary-foreground transition-all duration-300
+           hover:shadow-lg hover:scale-[1.02] active:scale-[0.98];
+    background: var(--gradient-accent);
+  }
+  .btn-ghost {
+    @apply px-6 py-3 rounded-xl font-semibold text-primary bg-primary/5 border border-primary/20
+           transition-all duration-300 hover:bg-primary/10 hover:border-primary/30
+           active:scale-[0.98];
+  }
+  .btn-warm {
+    @apply px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300
+           hover:shadow-lg hover:scale-[1.02] active:scale-[0.98];
+    background: var(--gradient-warm);
+  }
+  .floating-orb {
+    @apply absolute rounded-full opacity-20 blur-3xl pointer-events-none;
+    animation: float 8s ease-in-out infinite;
+  }
+}
+
+@layer utilities {
+  .shadow-glass {
+    box-shadow: var(--shadow-glass);
+  }
+  .shadow-elevated {
+    box-shadow: var(--shadow-elevated);
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-20px) scale(1.05); }
+}
+
+@keyframes pulse-gentle {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.35; }
+}

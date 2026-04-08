@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "scripts": {
+    "frontend:install": "npm --prefix frontend install",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "frontend:preview": "npm --prefix frontend run preview",
+    "backend:install": "cd backend && python3.11 -m pip install -r requirements.txt",
+    "backend:dev": "cd backend && ./run_backend.sh"
+  }
+}
