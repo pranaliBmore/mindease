@@ -17,6 +17,10 @@ dist-ssr
 /backend/.venv
 /backend/.venv311
 /backend/.env
+/backend/.env.production
+/backend/.env.local
+/frontend/.env.production
+/frontend/.env.local
 /backend/app/emotion_model/weights/*.onnx
 /backend/app/emotion_model/weights/*.part
 /backend/uploads
