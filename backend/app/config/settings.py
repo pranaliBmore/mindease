@@ -35,6 +35,23 @@ class Settings(BaseSettings):
     # Fernet key (urlsafe base64, 32 bytes). Blank = private text is stored as plaintext.
     data_encryption_key: str = ""
 
+    # SMTP (used to email signup verification codes). Blank host = dev fallback:
+    # the OTP is logged instead of emailed, so local dev needs no mail account.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "MindEase"
+    smtp_use_tls: bool = True
+
+    otp_expire_minutes: int = 10
+    otp_length: int = 6
+    otp_max_attempts: int = 5
+
+    avatar_upload_dir: str = "uploads/avatars"
+    avatar_max_bytes: int = 5 * 1024 * 1024
+
     cors_origins: str = Field(default="http://localhost:3000,http://localhost:5173,http://localhost:8080")
     cors_origin_regex: str = (
         r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?$"

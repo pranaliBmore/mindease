@@ -21,7 +21,6 @@ import {
   X,
 } from "lucide-react";
 import { api, type ChatMode } from "@/lib/api";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 
 interface Message {
   id: string;
@@ -152,7 +151,6 @@ function BreathingBox({ onClose }: { onClose: () => void }) {
 }
 
 const ChatAI = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const emotionContext = localStorage.getItem("detectedEmotion")?.trim() || undefined;
 

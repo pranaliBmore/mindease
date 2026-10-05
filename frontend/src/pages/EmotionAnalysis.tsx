@@ -5,10 +5,8 @@ import FloatingOrbs from "@/components/FloatingOrbs";
 import { ScanFace, ArrowRight, Loader2, Camera } from "lucide-react";
 import { api, type EmotionResponse } from "@/lib/api";
 import { getCameraStream, isCameraSupportedEnvironment, stopMediaStream } from "@/lib/camera";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 
 const EmotionAnalysis = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const [stage, setStage] = useState<"scan" | "result" | "reason">("scan");
   const [detected, setDetected] = useState<EmotionResponse | null>(null);

@@ -19,6 +19,7 @@ dist-ssr
 /backend/.env
 /backend/app/emotion_model/weights/*.onnx
 /backend/app/emotion_model/weights/*.part
+/backend/uploads
 .vite
 
 # Editor directories and files

@@ -7,11 +7,42 @@ const API_BASE_URL =
     ? import.meta.env.VITE_API_BASE_URL
     : "";
 
-type HttpMethod = "GET" | "POST";
+type HttpMethod = "GET" | "POST" | "PATCH";
 
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem("accessToken");
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function decodeJwtExpiry(token: string): number | null {
+  try {
+    const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = JSON.parse(atob(base64)) as { exp?: number };
+    return typeof json.exp === "number" ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True only for a present, well-formed, non-expired access token - checked
+ * synchronously so route guards can decide before ever rendering protected content. */
+export function hasValidSession(): boolean {
+  const token = localStorage.getItem("accessToken");
+  if (!token) return false;
+  const expiresAt = decodeJwtExpiry(token);
+  return expiresAt !== null && expiresAt > Date.now();
+}
+
+export function clearSession(): void {
+  localStorage.removeItem("accessToken");
+  localStorage.removeItem("refreshToken");
+}
+
+/** Resolves a backend-relative media path (e.g. an avatar_url) against the API origin. */
+export function resolveMediaUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (/^https?:\/\//.test(path)) return path;
+  return `${API_BASE_URL}${path}`;
 }
 
 /** FastAPI returns detail as string, object, or validation array */
@@ -64,6 +95,12 @@ async function request<T>(
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && path !== "/api/auth/login" && path !== "/api/auth/signup") {
+      clearSession();
+      if (typeof window !== "undefined" && window.location.pathname !== "/") {
+        window.location.assign("/");
+      }
+    }
     throw new Error(formatErrorDetail(data));
   }
   return data as T;
@@ -86,6 +123,27 @@ export interface PublicUser {
   id: string;
   name: string;
   email_masked: string;
+  avatar_url: string | null;
+  bio: string;
+}
+
+export interface DiscoverUser extends PublicUser {
+  mood: string | null;
+  shares_your_mood: boolean;
+}
+
+export interface UserMe {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+  bio: string;
+  email_verified: boolean;
+  emotional_history: string[];
+  feedback_history: string[];
+  communities: string[];
+  connections: string[];
+  created_at: string;
 }
 
 export interface ConnectionRequestItem {
@@ -233,17 +291,17 @@ export const api = {
   login: (payload: { email: string; password: string }) =>
     request<AuthTokens>("/api/auth/login", "POST", payload),
   logout: () => request<GenericMessageResponse>("/api/auth/logout", "POST"),
-  getMe: () =>
-    request<{
-      id: string;
-      name: string;
-      email: string;
-      emotional_history: string[];
-      feedback_history: string[];
-      communities: string[];
-      connections: string[];
-      created_at: string;
-    }>("/api/auth/me", "GET"),
+  getMe: () => request<UserMe>("/api/auth/me", "GET"),
+  verifyEmail: (otp: string) => request<GenericMessageResponse>("/api/auth/verify-email", "POST", { otp }),
+  resendOtp: () => request<GenericMessageResponse>("/api/auth/resend-otp", "POST"),
+  updateProfile: (payload: { name?: string; bio?: string }) =>
+    request<UserMe>("/api/auth/profile", "PATCH", payload),
+  uploadAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ avatar_url: string }>("/api/auth/avatar", "POST", form, true);
+  },
+  discoverUsers: (limit = 24) => request<DiscoverUser[]>(`/api/connection/discover?limit=${limit}`, "GET"),
 
   detectEmotion: (payload: { image_base64: string; reason?: string }) =>
     request<EmotionResponse>("/api/emotion/detect", "POST", payload),

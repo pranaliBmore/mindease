@@ -33,6 +33,8 @@ def public_user(user_doc: dict) -> dict:
         "id": str(user_doc["_id"]),
         "name": user_doc.get("name", ""),
         "email_masked": mask_email(user_doc.get("email", "")),
+        "avatar_url": user_doc.get("avatar_url"),
+        "bio": user_doc.get("bio", ""),
     }
 
 
@@ -77,6 +79,54 @@ class SocialService:
         items = await cursor.to_list(length=25)
         return [public_user(u) for u in items]
 
+    async def _latest_mood(self, uid: str) -> str | None:
+        doc = await db.emotions.find_one({"user_id": uid}, sort=[("created_at", -1)])
+        if doc:
+            return doc.get("emotion")
+        doc = await db.solo_analyses.find_one({"user_id": uid}, sort=[("created_at", -1)])
+        if doc:
+            return doc.get("emotion")
+        return None
+
+    async def discover(self, user: dict, limit: int = 24) -> list[dict]:
+        """Browsable member directory - solves "I don't know their email or face" by
+        letting people connect from a face+name they can actually see, instead of only
+        exact-match search. Ranks people feeling the same way as the viewer first."""
+        uid = str(user["_id"])
+        cap = max(1, min(limit, 50))
+
+        taken = await db.connection_requests.find(
+            {
+                "$or": [{"from_user_id": uid}, {"to_user_id": uid}],
+                "status": {"$in": ["pending", "accepted"]},
+            },
+        ).to_list(length=500)
+        exclude_ids = {uid}
+        for r in taken:
+            exclude_ids.add(r["from_user_id"])
+            exclude_ids.add(r["to_user_id"])
+        exclude_oids = [to_object_id(x) for x in exclude_ids if x]
+
+        my_mood = await self._latest_mood(uid)
+
+        candidates = (
+            await db.users.find({"_id": {"$nin": exclude_oids}})
+            .sort("_id", -1)
+            .limit(60)
+            .to_list(length=60)
+        )
+
+        out = []
+        for c in candidates:
+            mood = await self._latest_mood(str(c["_id"]))
+            item = public_user(c)
+            item["mood"] = mood
+            item["shares_your_mood"] = bool(my_mood and mood == my_mood)
+            out.append(item)
+
+        out.sort(key=lambda x: not x["shares_your_mood"])
+        return out[:cap]
+
     async def send_request(
         self,
         user: dict,
@@ -105,6 +155,9 @@ class SocialService:
         to_uid = str(target["_id"])
         if from_uid == to_uid:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot connect to yourself")
+
+        if await self.are_connected(from_uid, to_uid):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Already connected")
 
         reverse = await db.connection_requests.find_one(
             {"from_user_id": to_uid, "to_user_id": from_uid, "status": "pending"},
@@ -179,8 +232,15 @@ class SocialService:
             outgoing_enriched.append(await with_other(r, "to_user_id"))
 
         connections_enriched = []
+        seen_peer_ids: set[str] = set()
         for r in accepted:
             other_id = r["to_user_id"] if r["from_user_id"] == uid else r["from_user_id"]
+            # Defense in depth: a pair should have at most one accepted record, but if
+            # stale/duplicate data exists (e.g. from before this was enforced), never
+            # show the same connection twice.
+            if other_id in seen_peer_ids:
+                continue
+            seen_peer_ids.add(other_id)
             ou = await db.users.find_one({"_id": to_object_id(other_id)})
             other = public_user(ou) if ou else {"id": other_id, "name": "Unknown", "email_masked": "***"}
             at = r.get("updated_at") or r.get("created_at")

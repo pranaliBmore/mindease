@@ -9,6 +9,7 @@ cryptography>=41.0  # Fernet, for encrypting private text at rest
 bcrypt>=3.2.0,<4.1
 passlib[bcrypt]>=1.7.4
 python-multipart>=0.0.5
+aiosmtplib>=3.0
 slowapi>=0.1.9
 httpx>=0.24.0
 groq>=0.4.0

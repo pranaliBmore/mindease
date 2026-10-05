@@ -3,11 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import { Heart, Sparkles } from "lucide-react";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api } from "@/lib/api";
 
 const ThankYou = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const [loggingOut, setLoggingOut] = useState(false);
 

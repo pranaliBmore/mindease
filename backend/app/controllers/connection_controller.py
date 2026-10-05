@@ -29,5 +29,9 @@ async def search_users_controller(user: dict, q: str) -> list[dict]:
     return await social_service.search_users(user, q)
 
 
+async def discover_users_controller(user: dict, limit: int) -> list[dict]:
+    return await social_service.discover(user, limit)
+
+
 async def list_dm_controller(user: dict, peer_user_id: str, limit: int) -> list[dict]:
     return await social_service.list_messages(user, peer_user_id, limit)

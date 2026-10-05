@@ -1,10 +1,22 @@
-from fastapi import HTTPException, status
+import logging
+from datetime import timedelta, timezone
+from pathlib import Path
+
+from fastapi import HTTPException, UploadFile, status
 
 from app.config.database import db
+from app.config.settings import get_settings
 from app.models.user_model import build_user_document
 from app.schemas.auth_schema import LoginRequest, SignupRequest
-from app.utils.common import serialize_mongo_id
+from app.services.email_service import generate_otp, send_otp_email
+from app.utils.common import serialize_mongo_id, to_object_id, utc_now
 from app.utils.security import create_access_token, create_refresh_token, hash_password, verify_password
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+_HIDDEN_FIELDS = ("password_hash", "token_version", "otp_hash", "otp_expires_at", "otp_attempts")
+_ALLOWED_AVATAR_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 
 
 class AuthService:
@@ -20,6 +32,14 @@ class AuthService:
         )
         insert_result = await db.users.insert_one(user_doc)
         user_id = str(insert_result.inserted_id)
+
+        try:
+            await self._issue_and_send_otp(user_id, payload.email.lower(), payload.name.strip())
+        except HTTPException:
+            # Account creation should not fail just because the verification email
+            # didn't go out - the user can request a resend from /verify-email.
+            logger.warning("Signup OTP email failed for %s; account created anyway", user_id)
+
         return {
             "access_token": create_access_token(user_id, token_version=0),
             "refresh_token": create_refresh_token(user_id),
@@ -45,5 +65,110 @@ class AuthService:
         return {"message": "Logged out successfully"}
 
     async def profile(self, user: dict) -> dict:
-        safe = {k: v for k, v in user.items() if k not in ("password_hash", "token_version")}
+        safe = {k: v for k, v in user.items() if k not in _HIDDEN_FIELDS}
         return serialize_mongo_id(safe)
+
+    # --- Email verification (OTP) -------------------------------------------------
+
+    async def _issue_and_send_otp(self, user_id: str, email: str, name: str) -> None:
+        otp = generate_otp()
+        await db.users.update_one(
+            {"_id": to_object_id(user_id)},
+            {
+                "$set": {
+                    "otp_hash": hash_password(otp),
+                    "otp_expires_at": utc_now() + timedelta(minutes=settings.otp_expire_minutes),
+                    "otp_attempts": 0,
+                },
+            },
+        )
+        await send_otp_email(email, name, otp)
+
+    async def resend_otp(self, user: dict) -> dict:
+        if user.get("email_verified"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already verified")
+        await self._issue_and_send_otp(str(user["_id"]), user["email"], user.get("name", ""))
+        return {"message": f"A new verification code was sent to {user['email']}"}
+
+    async def verify_email(self, user: dict, otp: str) -> dict:
+        if user.get("email_verified"):
+            return {"message": "Email already verified"}
+
+        otp_hash = user.get("otp_hash")
+        expires_at = user.get("otp_expires_at")
+        attempts = int(user.get("otp_attempts", 0))
+
+        if not otp_hash or not expires_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No verification code is pending. Request a new one.",
+            )
+        if attempts >= settings.otp_max_attempts:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many incorrect attempts. Request a new code.",
+            )
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if utc_now() > expires_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This code expired. Request a new one.",
+            )
+
+        if not verify_password(otp.strip(), otp_hash):
+            remaining = settings.otp_max_attempts - (attempts + 1)
+            await db.users.update_one({"_id": user["_id"]}, {"$inc": {"otp_attempts": 1}})
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Incorrect code. {max(remaining, 0)} attempt(s) left.",
+            )
+
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {"email_verified": True, "otp_hash": None, "otp_expires_at": None, "otp_attempts": 0},
+            },
+        )
+        return {"message": "Email verified"}
+
+    # --- Profile --------------------------------------------------------------
+
+    async def update_profile(self, user: dict, name: str | None, bio: str | None) -> dict:
+        updates: dict = {}
+        if name is not None and name.strip():
+            updates["name"] = name.strip()
+        if bio is not None:
+            updates["bio"] = bio.strip()
+        if updates:
+            await db.users.update_one({"_id": user["_id"]}, {"$set": updates})
+            user = await db.users.find_one({"_id": user["_id"]})
+        return await self.profile(user)
+
+    async def upload_avatar(self, user: dict, file: UploadFile) -> dict:
+        ext = _ALLOWED_AVATAR_TYPES.get(file.content_type or "")
+        if not ext:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only JPEG, PNG, or WebP images are allowed.",
+            )
+        content = await file.read()
+        if len(content) > settings.avatar_max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Image must be under {settings.avatar_max_bytes // (1024 * 1024)}MB.",
+            )
+
+        user_id = str(user["_id"])
+        upload_dir = Path(settings.avatar_upload_dir)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        for stale in upload_dir.glob(f"{user_id}.*"):
+            stale.unlink(missing_ok=True)
+
+        dest = upload_dir / f"{user_id}{ext}"
+        dest.write_bytes(content)
+
+        avatar_url = f"/uploads/avatars/{user_id}{ext}?v={int(utc_now().timestamp())}"
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {"avatar_url": avatar_url}})
+        return {"avatar_url": avatar_url}

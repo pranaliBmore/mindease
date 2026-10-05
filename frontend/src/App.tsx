@@ -4,6 +4,7 @@ import { Suspense, lazy } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 // Lazy load components
 const Login = lazy(() => import("./pages/Login"));
@@ -14,6 +15,8 @@ const ChatAI = lazy(() => import("./pages/ChatAI"));
 const Insights = lazy(() => import("./pages/Insights"));
 const Community = lazy(() => import("./pages/Community"));
 const Match = lazy(() => import("./pages/Match"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
+const Profile = lazy(() => import("./pages/Profile"));
 const Expression = lazy(() => import("./pages/Expression"));
 const ContentSelection = lazy(() => import("./pages/ContentSelection"));
 const Feedback = lazy(() => import("./pages/Feedback"));
@@ -31,17 +34,19 @@ const App = () => (
         <Suspense fallback={<div>Loading...</div>}>
           <Routes>
             <Route path="/" element={<Login />} />
-            <Route path="/home" element={<Home />} />
-            <Route path="/path-selection" element={<PathSelection />} />
-            <Route path="/emotion-analysis" element={<EmotionAnalysis />} />
-            <Route path="/chat-ai" element={<ChatAI />} />
-            <Route path="/insights" element={<Insights />} />
-            <Route path="/community" element={<Community />} />
-            <Route path="/match" element={<Match />} />
-            <Route path="/expression" element={<Expression />} />
-            <Route path="/content-selection" element={<ContentSelection />} />
-            <Route path="/feedback" element={<Feedback />} />
-            <Route path="/thank-you" element={<ThankYou />} />
+            <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+            <Route path="/path-selection" element={<ProtectedRoute><PathSelection /></ProtectedRoute>} />
+            <Route path="/emotion-analysis" element={<ProtectedRoute><EmotionAnalysis /></ProtectedRoute>} />
+            <Route path="/chat-ai" element={<ProtectedRoute><ChatAI /></ProtectedRoute>} />
+            <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
+            <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
+            <Route path="/match" element={<ProtectedRoute><Match /></ProtectedRoute>} />
+            <Route path="/verify-email" element={<ProtectedRoute><VerifyEmail /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/expression" element={<ProtectedRoute><Expression /></ProtectedRoute>} />
+            <Route path="/content-selection" element={<ProtectedRoute><ContentSelection /></ProtectedRoute>} />
+            <Route path="/feedback" element={<ProtectedRoute><Feedback /></ProtectedRoute>} />
+            <Route path="/thank-you" element={<ProtectedRoute><ThankYou /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

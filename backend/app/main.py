@@ -1,9 +1,11 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -30,6 +32,15 @@ _IS_PROD = settings.app_env.lower() == "production"
 
 app = FastAPI(title=settings.app_name)
 app.state.limiter = limiter
+
+# Serve uploaded avatars. Note: on platforms with an ephemeral filesystem (e.g. Render's
+# free tier without a persistent disk), uploaded files are lost on redeploy/restart -
+# fine for local dev and demos, swap for object storage (S3/R2) before relying on it in
+# production.
+_uploads_dir = Path("uploads")
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
+
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,

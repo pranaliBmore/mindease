@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import { Pen, ArrowRight, Loader2, Sparkles, Play } from "lucide-react";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api, type SoloAnalyzeResponse } from "@/lib/api";
 
 const prompts = [
@@ -20,7 +19,6 @@ function formatPercent(p: number) {
 }
 
 const Expression = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const [text, setText] = useState("");
   const currentPrompt = useMemo(() => prompts[Math.floor(Math.random() * prompts.length)], []);

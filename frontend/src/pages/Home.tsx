@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import heroBg from "@/assets/hero-bg.jpg";
 import { Heart, Sparkles, Shield, Users } from "lucide-react";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 
 const features = [
   { icon: Sparkles, title: "AI-Powered Support", desc: "Get personalized guidance through intelligent conversations" },
@@ -12,7 +11,6 @@ const features = [
 ];
 
 const Home = () => {
-  useRequireAuth();
   const navigate = useNavigate();
 
   return (
@@ -58,6 +56,9 @@ const Home = () => {
               </button>
               <button onClick={() => navigate("/match")} className="btn-ghost">
                 Find Someone to Talk To
+              </button>
+              <button onClick={() => navigate("/profile")} className="btn-ghost">
+                My Profile
               </button>
             </div>
           </motion.div>

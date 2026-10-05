@@ -2,11 +2,9 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import { ScanFace, Palette, Users, Bot, ArrowRight } from "lucide-react";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { setJourneyFlow } from "@/lib/authFlow";
 
 const PathSelection = () => {
-  useRequireAuth();
   const navigate = useNavigate();
 
   return (

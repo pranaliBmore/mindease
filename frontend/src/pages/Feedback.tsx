@@ -3,12 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import { Star, MessageSquare, ArrowRight } from "lucide-react";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api } from "@/lib/api";
 import { getContentTypeForFeedback, getJourneyFlow } from "@/lib/authFlow";
 
 const Feedback = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);

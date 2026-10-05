@@ -13,7 +13,6 @@ import {
   ScanFace,
 } from "lucide-react";
 import { api, type InsightsResponse } from "@/lib/api";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 
 const MOOD_META: Record<string, { label: string; cls: string }> = {
   happiness: { label: "Happy", cls: "bg-sage" },
@@ -42,7 +41,6 @@ function TrendBadge({ trend }: { trend: InsightsResponse["trend"] }) {
 }
 
 const Insights = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const [range, setRange] = useState<"week" | "month">("month");
   const [data, setData] = useState<InsightsResponse | null>(null);

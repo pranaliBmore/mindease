@@ -33,7 +33,8 @@ const Login = () => {
         : await api.login({ email: email.trim(), password });
       localStorage.setItem("accessToken", tokens.access_token);
       localStorage.setItem("refreshToken", tokens.refresh_token);
-      navigate("/home");
+      const me = await api.getMe();
+      navigate(me.email_verified ? "/home" : "/verify-email");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {

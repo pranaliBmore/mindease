@@ -74,6 +74,21 @@ class MatchService:
         doc = await db.match_blocks.find_one({"pair_key": _pair_key(uid_a, uid_b)})
         return doc is not None
 
+    async def _is_already_social(self, uid_a: str, uid_b: str) -> bool:
+        """True if these two are already connected or have a pending request either way.
+        Matching two people who already know each other defeats the point of an
+        anonymous pairing, and re-revealing an existing connection is what caused
+        duplicate connection rows - simplest fix is to never pair them again."""
+        doc = await db.connection_requests.find_one(
+            {
+                "$or": [
+                    {"from_user_id": uid_a, "to_user_id": uid_b, "status": {"$in": ["pending", "accepted"]}},
+                    {"from_user_id": uid_b, "to_user_id": uid_a, "status": {"$in": ["pending", "accepted"]}},
+                ],
+            },
+        )
+        return doc is not None
+
     async def _active_session_for(self, uid: str) -> Optional[dict]:
         return await db.match_sessions.find_one(
             {"status": "active", "$or": [{"user_a": uid}, {"user_b": uid}]},
@@ -114,6 +129,8 @@ class MatchService:
         best_score = -1
         for c in candidates:
             if await self._is_blocked(uid, c["user_id"]):
+                continue
+            if await self._is_already_social(uid, c["user_id"]):
                 continue
             sc = _score(answers, c["answers"])
             if sc > best_score:

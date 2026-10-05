@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import { Quote, Play, Dumbbell, BookOpen, Music, Sunrise, ArrowRight, Check } from "lucide-react";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { setContentSelectionIds } from "@/lib/authFlow";
 
 type Option = {
@@ -93,7 +92,6 @@ const options: Option[] = [
 ];
 
 const ContentSelection = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const [selected, setSelected] = useState<string[]>([]);
 

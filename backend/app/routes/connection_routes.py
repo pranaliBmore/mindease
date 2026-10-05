@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from app.controllers.connection_controller import (
     accept_connection_controller,
     connection_state_controller,
+    discover_users_controller,
     list_dm_controller,
     reject_connection_controller,
     search_users_controller,
@@ -70,6 +71,14 @@ async def search_connection_users(
     current_user: dict = Depends(get_current_user),
 ):
     return await search_users_controller(current_user, q)
+
+
+@router.get("/discover", response_model=None)
+async def discover_connection_users(
+    limit: int = Query(24, ge=1, le=50),
+    current_user: dict = Depends(get_current_user),
+):
+    return await discover_users_controller(current_user, limit)
 
 
 @router.get("/messages/{peer_user_id}", response_model=None)

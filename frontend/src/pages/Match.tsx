@@ -14,7 +14,6 @@ import {
   ShieldAlert,
   Bot,
 } from "lucide-react";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useSocialWebSocket, type WsMatchMessagePayload } from "@/hooks/useSocialWebSocket";
 import {
   api,
@@ -90,7 +89,6 @@ function QuizOptionGrid({ options, value, onSelect }: QuizOptionGridProps) {
 type ViewState = "quiz" | "waiting" | "matched" | "ended";
 
 const Match = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<MatchSession | null>(null);

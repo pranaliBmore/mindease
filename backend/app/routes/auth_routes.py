@@ -1,14 +1,33 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 
-from app.controllers.auth_controller import login_controller, logout_controller, me_controller, signup_controller
+from app.controllers.auth_controller import (
+    login_controller,
+    logout_controller,
+    me_controller,
+    resend_otp_controller,
+    signup_controller,
+    update_profile_controller,
+    upload_avatar_controller,
+    verify_email_controller,
+)
 from app.config.settings import get_settings
 from app.middleware.auth_middleware import get_current_user
 from app.middleware.rate_limit import limiter
-from app.schemas.auth_schema import LoginRequest, LogoutResponse, SignupRequest, TokenResponse
+from app.schemas.auth_schema import (
+    AvatarResponse,
+    LoginRequest,
+    LogoutResponse,
+    MessageResponse,
+    SignupRequest,
+    TokenResponse,
+    UpdateProfileRequest,
+    VerifyEmailRequest,
+)
 from app.schemas.user_schema import UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _AUTH_LIMIT = f"{get_settings().rate_limit_auth_per_minute}/minute"
+_OTP_LIMIT = "5/minute"
 
 
 @router.post("/signup", response_model=TokenResponse)
@@ -31,3 +50,29 @@ async def logout(current_user: dict = Depends(get_current_user)):
 @router.get("/me", response_model=UserOut)
 async def me(current_user: dict = Depends(get_current_user)):
     return await me_controller(current_user)
+
+
+@router.post("/verify-email", response_model=MessageResponse)
+@limiter.limit(_OTP_LIMIT)
+async def verify_email(
+    request: Request,  # noqa: ARG001 - request required by slowapi
+    payload: VerifyEmailRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    return await verify_email_controller(current_user, payload.otp)
+
+
+@router.post("/resend-otp", response_model=MessageResponse)
+@limiter.limit(_OTP_LIMIT)
+async def resend_otp(request: Request, current_user: dict = Depends(get_current_user)):  # noqa: ARG001
+    return await resend_otp_controller(current_user)
+
+
+@router.patch("/profile", response_model=UserOut)
+async def update_profile(payload: UpdateProfileRequest, current_user: dict = Depends(get_current_user)):
+    return await update_profile_controller(current_user, payload)
+
+
+@router.post("/avatar", response_model=AvatarResponse)
+async def upload_avatar(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    return await upload_avatar_controller(current_user, file)

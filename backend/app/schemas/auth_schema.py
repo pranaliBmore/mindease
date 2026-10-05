@@ -20,3 +20,20 @@ class TokenResponse(BaseModel):
 
 class LogoutResponse(BaseModel):
     message: str
+
+
+class VerifyEmailRequest(BaseModel):
+    otp: str = Field(min_length=4, max_length=8)
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=100)
+    bio: str | None = Field(default=None, max_length=160)
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class AvatarResponse(BaseModel):
+    avatar_url: str

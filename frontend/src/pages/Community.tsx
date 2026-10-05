@@ -18,8 +18,10 @@ import {
   X,
   Clock,
   HeartHandshake,
+  Compass,
+  Sparkles,
 } from "lucide-react";
-import { useRequireAuth } from "@/hooks/useRequireAuth";
+import Avatar from "@/components/Avatar";
 import { useSocialWebSocket } from "@/hooks/useSocialWebSocket";
 import { api, type CommunityPost, type DirectMessageItem, type PublicUser } from "@/lib/api";
 
@@ -31,12 +33,6 @@ interface ChatLine {
   body: string;
   created_at: string | null;
 }
-
-const members = [
-  { name: "Sarah M.", status: "Finding peace through daily meditation", avatar: "S" },
-  { name: "Alex R.", status: "One step at a time", avatar: "A" },
-  { name: "Jamie L.", status: "Learning to embrace vulnerability", avatar: "J" },
-];
 
 function moodBadge(mood: CommunityPost["mood"]) {
   const map: Record<CommunityPost["mood"], { label: string; cls: string }> = {
@@ -52,7 +48,6 @@ function moodBadge(mood: CommunityPost["mood"]) {
 }
 
 const Community = () => {
-  useRequireAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -102,12 +97,25 @@ const Community = () => {
     queryFn: () => api.getMe(),
   });
 
-  const { data: connState, refetch: refetchConnections } = useQuery({
+  const { data: connState } = useQuery({
     queryKey: ["connectionState"],
     queryFn: () => api.getConnectionState(),
   });
 
+  const { data: discoverUsers, isLoading: loadingDiscover } = useQuery({
+    queryKey: ["discoverUsers"],
+    queryFn: () => api.discoverUsers(24),
+  });
+
   const myId = me?.id ?? "";
+
+  // Single source of truth for "something about who's pending/connected/discoverable
+  // changed" - every mutation (send/accept/reject) and every WS push routes through
+  // this instead of hand-picking which queries to refetch, so a case can't be missed.
+  const refreshSocialState = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["connectionState"] });
+    void queryClient.invalidateQueries({ queryKey: ["discoverUsers"] });
+  }, [queryClient]);
 
   useEffect(() => {
     selectedPeerRef.current = selectedPeer;
@@ -154,10 +162,7 @@ const Community = () => {
 
   const { sendDm } = useSocialWebSocket(token, {
     onDm: onWsDm,
-    onConnectionStateChanged: () => {
-      void queryClient.invalidateQueries({ queryKey: ["connectionState"] });
-      void refetchConnections();
-    },
+    onConnectionStateChanged: refreshSocialState,
     onWsError: (d) => setError(d),
   });
 
@@ -241,7 +246,7 @@ const Community = () => {
     try {
       const res = await api.sendConnectionRequest({ target_user_email: e });
       setBanner(res.message);
-      await refetchConnections();
+      refreshSocialState();
       setRequestEmail("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send request");
@@ -256,7 +261,7 @@ const Community = () => {
     try {
       const res = await api.sendConnectionRequest({ target_user_id: u.id });
       setBanner(res.message);
-      await refetchConnections();
+      refreshSocialState();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send request");
     } finally {
@@ -269,7 +274,7 @@ const Community = () => {
     try {
       const res = await api.acceptConnection(requestId);
       setBanner(res.message);
-      await refetchConnections();
+      refreshSocialState();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not accept");
     }
@@ -280,7 +285,7 @@ const Community = () => {
     try {
       const res = await api.rejectConnection(requestId);
       setBanner(res.message);
-      await refetchConnections();
+      refreshSocialState();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update request");
     }
@@ -357,6 +362,17 @@ const Community = () => {
   const outgoing = connState?.outgoing_pending ?? [];
   const connections = connState?.connections ?? [];
 
+  const connectedIds = new Set(connections.map((row) => row.user.id));
+  const outgoingIds = new Set(outgoing.map((row) => row.user.id));
+  const incomingIds = new Set(incoming.map((row) => row.user.id));
+
+  const relationshipLabel = (userId: string): string | null => {
+    if (connectedIds.has(userId)) return "Connected";
+    if (outgoingIds.has(userId)) return "Pending";
+    if (incomingIds.has(userId)) return "Wants to connect";
+    return null;
+  };
+
   return (
     <div className="min-h-screen relative overflow-hidden gradient-bg px-4 py-12">
       <FloatingOrbs />
@@ -413,10 +429,13 @@ const Community = () => {
         {error ? <p className="text-sm text-destructive mb-4 text-center">{error}</p> : null}
 
         <div className="grid lg:grid-cols-2 gap-8 mb-12 min-w-0">
-          <Tabs defaultValue="find" className="w-full min-w-0">
-            <TabsList className="grid w-full grid-cols-4 h-auto flex-wrap gap-1 bg-muted/60 p-2">
+          <Tabs defaultValue="discover" className="w-full min-w-0">
+            <TabsList className="grid w-full grid-cols-5 h-auto flex-wrap gap-1 bg-muted/60 p-2">
+              <TabsTrigger value="discover" className="text-xs sm:text-sm">
+                Discover
+              </TabsTrigger>
               <TabsTrigger value="find" className="text-xs sm:text-sm">
-                Find
+                Search
               </TabsTrigger>
               <TabsTrigger value="sent" className="text-xs sm:text-sm">
                 Sent
@@ -428,6 +447,58 @@ const Community = () => {
                 Connected
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="discover" className="mt-4 space-y-3">
+              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                <Compass className="w-4 h-4" />
+                Browse real people here - no need to already know their name or email.
+              </p>
+              {loadingDiscover ? (
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto mt-4" />
+              ) : (discoverUsers ?? []).length === 0 ? (
+                <div className="glass-card p-5 space-y-3 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No one new to discover right now - check back soon, or let us pair you with someone instead.
+                  </p>
+                  <button type="button" onClick={() => navigate("/match")} className="btn-ghost text-sm">
+                    Try Find a Match
+                  </button>
+                </div>
+              ) : (
+                <ul className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                  {(discoverUsers ?? []).map((u) => {
+                    const badge = u.mood ? moodBadge(u.mood as CommunityPost["mood"]) : null;
+                    return (
+                      <li key={u.id} className="glass-card p-4 flex items-center gap-3">
+                        <Avatar name={u.name} avatarUrl={u.avatar_url} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-foreground">{u.name}</span>
+                            {badge ? (
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full ${badge.cls} flex items-center gap-1`}>
+                                {u.shares_your_mood ? <Sparkles className="w-2.5 h-2.5" /> : null}
+                                {u.shares_your_mood ? `Feeling ${badge.label.toLowerCase()} too` : badge.label}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {u.bio || "No bio yet"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={requestingUserId === u.id}
+                          onClick={() => void sendRequestToUserId(u)}
+                          className="btn-ghost text-xs whitespace-nowrap py-1 px-2 shrink-0"
+                        >
+                          {requestingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Connect"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </TabsContent>
 
             <TabsContent value="find" className="mt-4 space-y-4">
               <div className="glass-card p-4 space-y-3">
@@ -445,25 +516,35 @@ const Community = () => {
                   <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                 ) : (
                   <ul className="space-y-2 max-h-56 overflow-y-auto">
-                    {searchResults.map((u) => (
+                    {searchResults.map((u) => {
+                      const existingStatus = relationshipLabel(u.id);
+                      return (
                       <li
                         key={u.id}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background/40 px-3 py-2"
+                        className="flex items-center gap-3 rounded-lg border border-border/50 bg-background/40 px-3 py-2"
                       >
-                        <div>
-                          <div className="font-medium text-foreground">{u.name}</div>
-                          <div className="text-xs text-muted-foreground">{u.email_masked}</div>
+                        <Avatar name={u.name} avatarUrl={u.avatar_url} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-foreground truncate">{u.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{u.email_masked}</div>
                         </div>
-                        <button
-                          type="button"
-                          disabled={requestingUserId === u.id || u.id === myId}
-                          onClick={() => void sendRequestToUserId(u)}
-                          className="btn-ghost text-xs whitespace-nowrap py-1 px-2"
-                        >
-                          {requestingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Request"}
-                        </button>
+                        {existingStatus ? (
+                          <span className="text-xs text-muted-foreground whitespace-nowrap py-1 px-2">
+                            {existingStatus}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={requestingUserId === u.id || u.id === myId}
+                            onClick={() => void sendRequestToUserId(u)}
+                            className="btn-ghost text-xs whitespace-nowrap py-1 px-2"
+                          >
+                            {requestingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Request"}
+                          </button>
+                        )}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -500,15 +581,13 @@ const Community = () => {
                 <p className="text-sm text-muted-foreground">No outgoing requests.</p>
               ) : (
                 outgoing.map((row) => (
-                  <div
-                    key={row.request_id}
-                    className="glass-card p-4 flex items-center justify-between gap-2"
-                  >
-                    <div>
-                      <div className="font-medium">{row.user.name}</div>
-                      <div className="text-xs text-muted-foreground">{row.user.email_masked}</div>
+                  <div key={row.request_id} className="glass-card p-4 flex items-center gap-3">
+                    <Avatar name={row.user.name} avatarUrl={row.user.avatar_url} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{row.user.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{row.user.email_masked}</div>
                     </div>
-                    <span className="text-xs text-muted-foreground">Pending</span>
+                    <span className="text-xs text-muted-foreground shrink-0">Pending</span>
                   </div>
                 ))
               )}
@@ -524,9 +603,12 @@ const Community = () => {
                     key={row.request_id}
                     className="glass-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
-                    <div>
-                      <div className="font-medium">{row.user.name}</div>
-                      <div className="text-xs text-muted-foreground">{row.user.email_masked}</div>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Avatar name={row.user.name} avatarUrl={row.user.avatar_url} size="sm" />
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{row.user.name}</div>
+                        <div className="text-xs text-muted-foreground truncate">{row.user.email_masked}</div>
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -558,13 +640,14 @@ const Community = () => {
                     key={row.request_id}
                     type="button"
                     onClick={() => openChat(row.user)}
-                    className={`w-full text-left glass-card p-4 flex items-center justify-between gap-2 transition-all hover:shadow-md ${
+                    className={`w-full text-left glass-card p-4 flex items-center gap-3 transition-all hover:shadow-md ${
                       selectedPeer?.id === row.user.id ? "ring-2 ring-primary" : ""
                     }`}
                   >
-                    <div>
-                      <div className="font-medium">{row.user.name}</div>
-                      <div className="text-xs text-muted-foreground">{row.user.email_masked}</div>
+                    <Avatar name={row.user.name} avatarUrl={row.user.avatar_url} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{row.user.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{row.user.email_masked}</div>
                     </div>
                     <MessageCircle className="w-5 h-5 text-primary shrink-0" />
                   </button>
@@ -574,16 +657,19 @@ const Community = () => {
           </Tabs>
 
           <div className="glass-card-strong flex flex-col min-h-[420px] min-w-0 overflow-hidden">
-            <div className="border-b border-border/50 px-4 py-3 shrink-0">
-              <h2 className="font-semibold text-foreground flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-primary" />
-                {selectedPeer ? `Chat with ${selectedPeer.name}` : "Direct messages"}
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                {selectedPeer
-                  ? "Messages are delivered instantly while you are online. History loads from the server."
-                  : "Select someone under Connected to start."}
-              </p>
+            <div className="border-b border-border/50 px-4 py-3 shrink-0 flex items-center gap-3">
+              {selectedPeer ? <Avatar name={selectedPeer.name} avatarUrl={selectedPeer.avatar_url} size="sm" /> : null}
+              <div className="min-w-0">
+                <h2 className="font-semibold text-foreground flex items-center gap-2 truncate">
+                  {!selectedPeer ? <MessageCircle className="w-5 h-5 text-primary shrink-0" /> : null}
+                  {selectedPeer ? `Chat with ${selectedPeer.name}` : "Direct messages"}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {selectedPeer
+                    ? "Messages are delivered instantly while you are online. History loads from the server."
+                    : "Select someone under Connected to start."}
+                </p>
+              </div>
             </div>
             <div
               ref={chatScrollRef}
@@ -648,27 +734,6 @@ const Community = () => {
               <Icon className="w-6 h-6 text-primary mx-auto mb-2" />
               <div className="text-xl font-bold text-foreground">{value}</div>
               <div className="text-sm text-muted-foreground">{label}</div>
-            </motion.div>
-          ))}
-        </div>
-
-        <div className="space-y-4 mb-10">
-          <h2 className="text-xl font-display font-semibold text-foreground">Community voices</h2>
-          {members.map((m, i) => (
-            <motion.div
-              key={m.name}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.25 + i * 0.06 }}
-              className="glass-card p-5 flex items-center gap-4"
-            >
-              <div className="w-12 h-12 rounded-xl gradient-primary flex items-center justify-center text-primary-foreground font-bold">
-                {m.avatar}
-              </div>
-              <div className="flex-1">
-                <div className="font-semibold text-foreground">{m.name}</div>
-                <div className="text-sm text-muted-foreground">{m.status}</div>
-              </div>
             </motion.div>
           ))}
         </div>
