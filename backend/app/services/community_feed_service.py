@@ -7,6 +7,44 @@ from app.services.ai_engine import ai_engine
 from app.services.local_nlp import classify_emotion_vader
 from app.utils.common import serialize_mongo_id, to_object_id, utc_now
 
+_SEED_AUTHOR = {"id": "seed", "name": "MindEase Community", "avatar_url": None}
+
+
+def _author_out(post: dict) -> dict:
+    if post.get("user_id") == "seed":
+        return _SEED_AUTHOR
+    return {
+        "id": post.get("user_id", ""),
+        "name": post.get("author_name") or "A community member",
+        "avatar_url": post.get("author_avatar_url"),
+    }
+
+
+def _comments_out(post: dict) -> list[dict]:
+    out = []
+    for c in post.get("raw_comments", []):
+        out.append(
+            {
+                "id": c.get("id", ""),
+                "user_id": c.get("user_id", ""),
+                "name": c.get("name") or "A community member",
+                "avatar_url": c.get("avatar_url"),
+                "text": c.get("text", ""),
+                "created_at": c.get("created_at"),
+            },
+        )
+    return out
+
+
+def _post_out(post: dict) -> dict:
+    post["author"] = _author_out(post)
+    post["comments"] = _comments_out(post)
+    post.pop("raw_comments", None)
+    post.pop("user_id", None)
+    post.pop("author_name", None)
+    post.pop("author_avatar_url", None)
+    return serialize_mongo_id(post)
+
 
 class CommunityFeedService:
     async def create_post(self, user: dict, text: str, community_name: str | None = None) -> dict:
@@ -29,39 +67,40 @@ class CommunityFeedService:
 
         doc = {
             "user_id": str(user["_id"]),
+            "author_name": user.get("name", ""),
+            "author_avatar_url": user.get("avatar_url"),
             "text": clean,
             "mood": mood,
             "ai_reply": ai_reply,
             "likes": 0,
             "liked_by": [],
-            "comments": [],
             "raw_comments": [],
             "community_name": community_name.strip().lower() if community_name else None,
             "created_at": utc_now(),
         }
         ins = await db.community_posts.insert_one(doc)
         doc["_id"] = ins.inserted_id
-        return serialize_mongo_id(doc)
+        return _post_out(doc)
 
     async def feed(self, limit: int = 30, community_name: str | None = None) -> dict:
         cap = max(1, min(limit, 100))
         query = {}
         if community_name:
             query["community_name"] = community_name.strip().lower()
-            
+
         rows = await db.community_posts.find(query).sort("created_at", -1).limit(cap).to_list(length=cap)
-        items = [serialize_mongo_id(r) for r in rows]
-        
+        items = [_post_out(r) for r in rows]
+
         trending_rows = await db.community_posts.find({}).sort("likes", -1).limit(5).to_list(length=5)
-        trending_posts = [serialize_mongo_id(r) for r in trending_rows]
-        
+        trending_posts = [_post_out(r) for r in trending_rows]
+
         user_rows = await db.users.find({}, {"_id": 1, "name": 1}).sort("_id", -1).limit(5).to_list(length=5)
         suggested_users = [{"id": str(u["_id"]), "name": u.get("name", "User")} for u in user_rows]
 
         return {
             "items": items,
             "trending_posts": trending_posts,
-            "suggested_users": suggested_users
+            "suggested_users": suggested_users,
         }
 
     async def like(self, user: dict, post_id: str) -> dict:
@@ -70,18 +109,18 @@ class CommunityFeedService:
         post = await db.community_posts.find_one({"_id": oid})
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-        
+
         liked_by = post.get("liked_by", [])
         if uid in liked_by:
             await db.community_posts.update_one(
-                {"_id": oid}, 
-                {"$pull": {"liked_by": uid}, "$inc": {"likes": -1}}
+                {"_id": oid},
+                {"$pull": {"liked_by": uid}, "$inc": {"likes": -1}},
             )
             return {"message": "Unliked"}
         else:
             await db.community_posts.update_one(
-                {"_id": oid}, 
-                {"$addToSet": {"liked_by": uid}, "$inc": {"likes": 1}}
+                {"_id": oid},
+                {"$addToSet": {"liked_by": uid}, "$inc": {"likes": 1}},
             )
             return {"message": "Liked"}
 
@@ -90,19 +129,26 @@ class CommunityFeedService:
         clean = (text or "").strip()
         if not clean:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Comment cannot be empty")
-            
+
         post = await db.community_posts.find_one({"_id": oid})
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-            
+
         raw_comments = post.get("raw_comments", [])
         if raw_comments and raw_comments[-1].get("user_id") == str(user["_id"]) and raw_comments[-1].get("text") == clean:
             return {"message": "Comment suppressed (duplicate prevention)"}
-            
-        new_comment = {"user_id": str(user["_id"]), "text": clean, "id": str(uuid.uuid4())}
+
+        new_comment = {
+            "id": str(uuid.uuid4()),
+            "user_id": str(user["_id"]),
+            "name": user.get("name", ""),
+            "avatar_url": user.get("avatar_url"),
+            "text": clean,
+            "created_at": utc_now(),
+        }
         await db.community_posts.update_one(
-            {"_id": oid}, 
-            {"$push": {"raw_comments": new_comment, "comments": clean}}
+            {"_id": oid},
+            {"$push": {"raw_comments": new_comment}},
         )
         return {"message": "Comment added"}
 
@@ -147,13 +193,11 @@ class CommunityFeedService:
                     "ai_reply": engine["message"],
                     "likes": 0,
                     "liked_by": [],
-                    "comments": [],
                     "raw_comments": [],
                     "created_at": now,
-                }
+                },
             )
         await db.community_posts.insert_many(docs)
 
 
 community_feed_service = CommunityFeedService()
-

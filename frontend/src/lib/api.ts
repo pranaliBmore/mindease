@@ -213,14 +213,30 @@ export interface ChatHistoryResponse {
 
 export type CommunityMood = SoloEmotion;
 
+export interface PostAuthor {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+}
+
+export interface CommunityComment {
+  id: string;
+  user_id: string;
+  name: string;
+  avatar_url: string | null;
+  text: string;
+  created_at: string | null;
+}
+
 export interface CommunityPost {
   id: string;
+  author: PostAuthor;
   text: string;
   mood: CommunityMood;
   created_at: string;
   ai_reply: string;
   likes: number;
-  comments: string[];
+  comments: CommunityComment[];
 }
 
 export interface CommunityFeedResponse {

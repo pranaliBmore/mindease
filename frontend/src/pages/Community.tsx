@@ -82,7 +82,6 @@ const Community = () => {
     }
   });
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
-  const [comments, setComments] = useState<Record<string, string[]>>({});
 
   const [postText, setPostText] = useState("");
   const [posting, setPosting] = useState(false);
@@ -321,7 +320,6 @@ const Community = () => {
     setError("");
     try {
       await api.commentCommunityPost(postId, text);
-      setComments((prev) => ({ ...prev, [postId]: [...(prev[postId] ?? []), text] }));
       setCommentDraft((prev) => ({ ...prev, [postId]: "" }));
       await refetchFeed();
     } catch (err) {
@@ -739,22 +737,23 @@ const Community = () => {
         </div>
 
         <div className="space-y-4 mb-10">
-          <h2 className="text-xl font-display font-semibold text-foreground">Random talks</h2>
+          <h2 className="text-xl font-display font-semibold text-foreground">Community Wall</h2>
           <p className="text-sm text-muted-foreground">
-            Share something. The AI replies automatically using the same engine as the main AI chat.
+            Share what's on your mind. Other people here can reply and support you directly - MindEase also
+            chimes in right away so you're never met with silence.
           </p>
           <div className="glass-card p-5 space-y-3">
             <textarea
               value={postText}
               onChange={(e) => setPostText(e.target.value)}
-              placeholder="Write a post or a question…"
+              placeholder="What's going on with you today?"
               rows={3}
               className="mindease-input resize-none"
             />
             <div className="flex justify-end">
               <button type="button" onClick={() => void submitPost()} disabled={posting} className="btn-primary">
                 {posting ? <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> : null}
-                Post
+                Share
               </button>
             </div>
           </div>
@@ -765,44 +764,58 @@ const Community = () => {
               return (
                 <div key={p.id} className="glass-card p-5 space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs px-2 py-1 rounded-full ${badge.cls}`}>{badge.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(p.created_at).toLocaleString()}
-                      </span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar name={p.author.name} avatarUrl={p.author.avatar_url} size="sm" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-foreground truncate">{p.author.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full ${badge.cls}`}>{badge.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(p.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <button type="button" onClick={() => void likePost(p.id)} className="btn-ghost text-xs py-1 px-2">
+                    <button
+                      type="button"
+                      onClick={() => void likePost(p.id)}
+                      className="btn-ghost text-xs py-1 px-2 shrink-0"
+                    >
                       {liked ? `Liked (${p.likes})` : `Like (${p.likes})`}
                     </button>
                   </div>
                   <p className="text-sm text-foreground leading-relaxed">{p.text}</p>
                   <div className="rounded-xl border border-border/40 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground/80">AI: </span>
+                    <span className="font-medium text-foreground/80">MindEase: </span>
                     {p.ai_reply}
                   </div>
+
+                  {p.comments.length > 0 ? (
+                    <div className="space-y-3 pt-2 border-t border-border/40">
+                      {p.comments.map((c) => (
+                        <div key={c.id} className="flex items-start gap-2">
+                          <Avatar name={c.name} avatarUrl={c.avatar_url} size="sm" />
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-medium text-foreground/80">{c.name}</span>
+                            <p className="text-sm text-muted-foreground break-words">{c.text}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
 
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input
                       value={commentDraft[p.id] ?? ""}
                       onChange={(e) => setCommentDraft((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                      placeholder="Add a supportive comment…"
+                      placeholder="Reply with support…"
                       className="mindease-input flex-1"
                       onKeyDown={(e) => e.key === "Enter" && void addComment(p.id)}
                     />
                     <button type="button" onClick={() => void addComment(p.id)} className="btn-primary whitespace-nowrap">
-                      Comment
+                      Reply
                     </button>
                   </div>
-
-                  {(p.comments?.length || (comments[p.id] ?? []).length) ? (
-                    <div className="space-y-2 pt-2 border-t border-border/40">
-                      {p.comments?.map((c, idx) => (
-                        <div key={`${p.id}-c-${idx}`} className="text-sm text-muted-foreground">
-                          <span className="text-foreground/80 font-medium">Comment:</span> {c}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
               );
             })}

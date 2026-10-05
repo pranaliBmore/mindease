@@ -20,14 +20,30 @@ class CommunityCommentRequest(BaseModel):
     text: str = Field(min_length=1, max_length=500)
 
 
+class PostAuthor(BaseModel):
+    id: str
+    name: str
+    avatar_url: Optional[str] = None
+
+
+class CommunityCommentOut(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    avatar_url: Optional[str] = None
+    text: str
+    created_at: Optional[datetime] = None
+
+
 class CommunityPostOut(BaseModel):
     id: str
+    author: PostAuthor
     text: str
     mood: Mood
     created_at: datetime
     ai_reply: str
     likes: int = 0
-    comments: list[str] = []
+    comments: list[CommunityCommentOut] = []
     community_name: Optional[str] = None
 
 class CommunityDetailResponse(BaseModel):
