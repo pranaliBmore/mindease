@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 
 from app.config.database import db
 from app.utils.common import serialize_mongo_id, to_object_id, utc_now
+from app.utils.crypto import decrypt_text, encrypt_text
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +263,7 @@ class SocialService:
                     "id": str(row["_id"]),
                     "from_user_id": row["from_user_id"],
                     "to_user_id": row["to_user_id"],
-                    "body": row["body"],
+                    "body": decrypt_text(row["body"]),
                     "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
                 },
             )
@@ -290,10 +291,11 @@ class SocialService:
             "conversation_id": cid,
             "from_user_id": from_uid,
             "to_user_id": to_user_id,
-            "body": text,
+            "body": encrypt_text(text),
             "created_at": now,
         }
         ins = await db.direct_messages.insert_one(doc)
+        # Return the plaintext body so the realtime WS push and the sender's UI show it directly.
         return {
             "id": str(ins.inserted_id),
             "from_user_id": from_uid,

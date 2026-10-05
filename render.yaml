@@ -1,0 +1,31 @@
+# Render Blueprint for the MindEase backend (FastAPI).
+# In Render: New + -> Blueprint -> pick this repo. Then fill the "sync: false" vars.
+services:
+  - type: web
+    name: mindease-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: MONGODB_DB_NAME
+        value: mindease
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      - key: CORS_ORIGIN_REGEX
+        value: ""
+      - key: MONGODB_URL          # MongoDB Atlas SRV string
+        sync: false
+      - key: JWT_SECRET_KEY       # python -c "import secrets;print(secrets.token_urlsafe(48))"
+        sync: false
+      - key: DATA_ENCRYPTION_KEY  # python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CORS_ORIGINS         # https://<your-site>.netlify.app  (set after the frontend is live)
+        sync: false

@@ -113,12 +113,23 @@ class CommunityFeedService:
         now = utc_now()
         seed = [
             {"text": "Feeling low today, nothing is working.", "mood": "sadness"},
-            {"text": "Had a stressful day at college. My mind won’t stop racing.", "mood": "stress"},
-            {"text": "Trying to stay positive but it’s hard. Any small tips that helped you?", "mood": "anxiety"},
-            {"text": "Anyone else feeling anxious lately? I’m worried about the future.", "mood": "fear"},
+            {"text": "Had a stressful day at college. My mind won't stop racing.", "mood": "stress"},
+            {"text": "Trying to stay positive but it's hard. Any small tips that helped you?", "mood": "anxiety"},
+            {"text": "Anyone else feeling anxious lately? I'm worried about the future.", "mood": "fear"},
             {"text": "I snapped at someone and I regret it. I want to handle anger better.", "mood": "anger"},
             {"text": "Small win: I finally took a walk and felt lighter for a bit.", "mood": "happiness"},
-            {"text": "Not sure what I feel—just kind of blank today.", "mood": "neutrality"},
+            {"text": "Not sure what I feel, just kind of blank today.", "mood": "neutrality"},
+            {"text": "Deadlines everywhere this week. Reminding myself I can only do one thing at a time.", "mood": "stress"},
+            {"text": "Woke up at 3am with my heart pounding again. Anyone found something that helps?", "mood": "anxiety"},
+            {"text": "Grateful for a friend who just listened today without trying to fix it.", "mood": "happiness"},
+            {"text": "Missing someone a lot right now. Just needed to say it somewhere.", "mood": "sadness"},
+            {"text": "Job interview tomorrow and my brain keeps playing the worst case on loop.", "mood": "fear"},
+            {"text": "Frustrated with myself for procrastinating all day. Trying to be kinder about it.", "mood": "anger"},
+            {"text": "Did a 5 minute breathing exercise before a meeting and it actually helped.", "mood": "happiness"},
+            {"text": "Some days are just for getting through, and that's okay.", "mood": "neutrality"},
+            {"text": "Started journaling this week. Weird at first, but it's helping me notice patterns.", "mood": "neutrality"},
+            {"text": "Overwhelmed by the news. Taking a break from my phone for the evening.", "mood": "stress"},
+            {"text": "Reached out to my sister after months. Nervous, but glad I did.", "mood": "anxiety"},
         ]
         docs = []
         for item in seed:

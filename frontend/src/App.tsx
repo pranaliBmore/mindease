@@ -11,6 +11,7 @@ const Home = lazy(() => import("./pages/Home"));
 const PathSelection = lazy(() => import("./pages/PathSelection"));
 const EmotionAnalysis = lazy(() => import("./pages/EmotionAnalysis"));
 const ChatAI = lazy(() => import("./pages/ChatAI"));
+const Insights = lazy(() => import("./pages/Insights"));
 const Community = lazy(() => import("./pages/Community"));
 const Expression = lazy(() => import("./pages/Expression"));
 const ContentSelection = lazy(() => import("./pages/ContentSelection"));
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="/path-selection" element={<PathSelection />} />
             <Route path="/emotion-analysis" element={<EmotionAnalysis />} />
             <Route path="/chat-ai" element={<ChatAI />} />
+            <Route path="/insights" element={<Insights />} />
             <Route path="/community" element={<Community />} />
             <Route path="/expression" element={<Expression />} />
             <Route path="/content-selection" element={<ContentSelection />} />

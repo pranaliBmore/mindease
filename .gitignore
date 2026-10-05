@@ -31,3 +31,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+
+# Node
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+
+# Build
+dist/
+build/

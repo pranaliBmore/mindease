@@ -9,8 +9,13 @@ export interface WsDirectMessagePayload {
 }
 
 function buildWsUrl(token: string): string {
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws/social?token=${encodeURIComponent(token)}`;
+  // In production VITE_API_BASE_URL points at the separately-hosted backend; derive the
+  // socket origin from it. Locally it is empty and we use the Vite dev proxy (same origin).
+  const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "");
+  const origin = apiBase
+    ? apiBase.replace(/^http/, "ws")
+    : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
+  return `${origin}/ws/social?token=${encodeURIComponent(token)}`;
 }
 
 export function useSocialWebSocket(

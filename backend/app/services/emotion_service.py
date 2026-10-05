@@ -5,6 +5,7 @@ from app.emotion_model.detector import analyze_emotion, decode_image
 from app.models.emotion_model import build_emotion_document
 from app.models.reason_model import build_reason_document
 from app.utils.common import serialize_mongo_id, to_object_id
+from app.utils.crypto import decrypt_optional, encrypt_optional, encrypt_text
 
 
 def _normalize_reason(reason: str | None) -> str | None:
@@ -26,7 +27,7 @@ class EmotionService:
             emotion=emotion,
             confidence=confidence,
             description=description,
-            reason=norm_reason,
+            reason=encrypt_optional(norm_reason),
         )
         insert_result = await db.emotions.insert_one(emotion_doc)
         await db.users.update_one(
@@ -38,7 +39,7 @@ class EmotionService:
                 build_reason_document(
                     user_id=str(user["_id"]),
                     emotion_id=str(insert_result.inserted_id),
-                    text=norm_reason,
+                    text=encrypt_text(norm_reason),
                 )
             )
         return {
@@ -54,15 +55,22 @@ class EmotionService:
         if not doc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emotion session not found")
 
-        await db.emotions.update_one({"_id": doc["_id"]}, {"$set": {"reason": norm}})
+        await db.emotions.update_one({"_id": doc["_id"]}, {"$set": {"reason": encrypt_optional(norm)}})
         await db.reasons.delete_many({"emotion_id": emotion_id})
         if norm:
             await db.reasons.insert_one(
-                build_reason_document(user_id=str(user["_id"]), emotion_id=emotion_id, text=norm),
+                build_reason_document(
+                    user_id=str(user["_id"]), emotion_id=emotion_id, text=encrypt_text(norm)
+                ),
             )
         return {"message": "Reason updated", "reason": norm}
 
     async def history(self, user: dict) -> list[dict]:
         cursor = db.emotions.find({"user_id": str(user["_id"])}).sort("created_at", -1).limit(50)
         items = await cursor.to_list(length=50)
-        return [serialize_mongo_id(item) for item in items]
+        out = []
+        for item in items:
+            item = serialize_mongo_id(item)
+            item["reason"] = decrypt_optional(item.get("reason"))
+            out.append(item)
+        return out

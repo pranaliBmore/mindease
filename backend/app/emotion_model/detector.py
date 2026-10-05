@@ -5,7 +5,7 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -13,16 +13,7 @@ from fastapi import HTTPException, UploadFile, status
 
 logger = logging.getLogger(__name__)
 
-EMOTION_MAP = {
-    "happy": "happiness",
-    "sad": "sadness",
-    "angry": "anger",
-    "fear": "fear",
-    "disgust": "anger",
-    "surprise": "neutrality",
-    "neutral": "neutrality",
-}
-
+# App-facing emotion vocabulary (must stay within these keys — the frontend/DB expect them).
 EMOTION_DESCRIPTIONS = {
     "happiness": "You seem relaxed and positive.",
     "sadness": "You may be feeling low; a gentle break can help.",
@@ -33,33 +24,72 @@ EMOTION_DESCRIPTIONS = {
     "neutrality": "You appear calm and steady.",
 }
 
-# FER+ ONNX class order (onnx/models zoo)
-_FERPLUS_LABELS = ("neutral", "happiness", "surprise", "sadness", "anger", "disgust", "fear", "contempt")
-
-# Map FER+ labels to DeepFace-style keys used by EMOTION_MAP
-_FER_TO_DOM = {
-    "neutral": "neutral",
-    "happiness": "happy",
-    "surprise": "surprise",
-    "sadness": "sad",
-    "anger": "angry",
-    "disgust": "disgust",
+# DeepFace / FER+ style keys -> app vocabulary.
+EMOTION_MAP = {
+    "happy": "happiness",
+    "sad": "sadness",
+    "angry": "anger",
     "fear": "fear",
-    "contempt": "neutral",
+    "disgust": "anger",
+    "surprise": "neutrality",
+    "neutral": "neutrality",
+    "contempt": "anger",
 }
 
-# Git LFS files must use media.githubusercontent.com, not raw.githubusercontent.com
-_ONNX_URL = (
+# ---- HSEmotion (AffectNet, EfficientNet-B0) — primary classifier -------------
+# 8-class AffectNet order used by av-savchenko/face-emotion-recognition.
+_HSE_LABELS = ("anger", "contempt", "disgust", "fear", "happiness", "neutral", "sadness", "surprise")
+_HSE_TO_APP = {
+    "anger": "anger",
+    "contempt": "anger",
+    "disgust": "anger",
+    "fear": "fear",
+    "happiness": "happiness",
+    "neutral": "neutrality",
+    "sadness": "sadness",
+    "surprise": "neutrality",  # app vocabulary has no "surprise"
+}
+_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+# ---- FER+ (ONNX model zoo) — fallback classifier ---------------------------
+_FERPLUS_LABELS = ("neutral", "happiness", "surprise", "sadness", "anger", "disgust", "fear", "contempt")
+
+_WEIGHTS_DIR = Path(__file__).resolve().parent / "weights"
+_HSE_PATH = _WEIGHTS_DIR / "enet_b0_8_best_afew.onnx"
+_FER_PATH = _WEIGHTS_DIR / "emotion-ferplus-8.onnx"
+_YUNET_PATH = _WEIGHTS_DIR / "face_detection_yunet_2023mar.onnx"
+
+_HSE_URL = (
+    "https://raw.githubusercontent.com/av-savchenko/face-emotion-recognition/main/"
+    "models/affectnet_emotions/onnx/enet_b0_8_best_afew.onnx"
+)
+# Git LFS assets must use media.githubusercontent.com, not raw.githubusercontent.com.
+_FER_URL = (
     "https://media.githubusercontent.com/media/onnx/models/main/"
     "validated/vision/body_analysis/emotion_ferplus/model/emotion-ferplus-8.onnx"
 )
-_WEIGHTS_DIR = Path(__file__).resolve().parent / "weights"
-_ONNX_PATH = _WEIGHTS_DIR / "emotion-ferplus-8.onnx"
-_MIN_ONNX_BYTES = 1_000_000
+_YUNET_URL = (
+    "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/"
+    "models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+)
+_MIN_HSE_BYTES = 5_000_000
+_MIN_FER_BYTES = 1_000_000
+_MIN_YUNET_BYTES = 50_000
+
+_YUNET_SCORE_THRESHOLD = 0.6
+_YUNET_NMS_THRESHOLD = 0.3
+_MAX_ANALYSIS_DIM = 1280
+_FACE_PAD_FRAC = 0.25
 
 _init_lock = threading.Lock()
+_hse_net = None
 _fer_net = None
-_face_cascade = None
+_yunet = None
+_face_cascades: Optional[List[cv2.CascadeClassifier]] = None
+
+
+# --------------------------------------------------------------------------- I/O
 
 
 def decode_image_sync(b64: str) -> np.ndarray:
@@ -94,17 +124,34 @@ def _softmax(x: np.ndarray) -> np.ndarray:
     return (e / np.sum(e)).astype(np.float64)
 
 
-def _ensure_onnx_model() -> Path:
+def _downscale(img: np.ndarray, max_dim: int = _MAX_ANALYSIS_DIM) -> np.ndarray:
+    h, w = img.shape[:2]
+    longest = max(h, w)
+    if longest <= max_dim:
+        return img
+    scale = max_dim / float(longest)
+    return cv2.resize(img, (int(round(w * scale)), int(round(h * scale))), interpolation=cv2.INTER_AREA)
+
+
+def _clahe(gray: np.ndarray) -> np.ndarray:
+    """Contrast-limited adaptive histogram equalisation — used only to aid face detection."""
+    return cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+
+
+# ------------------------------------------------------------------------ models
+
+
+def _ensure_model(path: Path, url: str, min_bytes: int, label: str) -> Path:
     _WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-    if _ONNX_PATH.is_file() and _ONNX_PATH.stat().st_size >= _MIN_ONNX_BYTES:
-        return _ONNX_PATH
+    if path.is_file() and path.stat().st_size >= min_bytes:
+        return path
     with _init_lock:
-        if _ONNX_PATH.is_file() and _ONNX_PATH.stat().st_size >= _MIN_ONNX_BYTES:
-            return _ONNX_PATH
-        tmp = _ONNX_PATH.with_suffix(".onnx.part")
-        logger.info("Downloading emotion model (~35 MB) to %s", _ONNX_PATH)
+        if path.is_file() and path.stat().st_size >= min_bytes:
+            return path
+        tmp = path.with_suffix(path.suffix + ".part")
+        logger.info("Downloading %s model to %s", label, path)
         try:
-            with urllib.request.urlopen(_ONNX_URL, timeout=300) as resp, open(tmp, "wb") as out:
+            with urllib.request.urlopen(url, timeout=120) as resp, open(tmp, "wb") as out:
                 while True:
                     chunk = resp.read(1 << 20)
                     if not chunk:
@@ -113,25 +160,28 @@ def _ensure_onnx_model() -> Path:
         except (urllib.error.URLError, OSError) as exc:
             if tmp.is_file():
                 tmp.unlink(missing_ok=True)
-            logger.exception("Failed to download FER+ ONNX model")
+            logger.exception("Failed to download %s model", label)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Could not download face emotion model: {exc}",
+                detail=f"Could not download face model: {exc}",
             ) from exc
-        tmp.replace(_ONNX_PATH)
-    return _ONNX_PATH
+        tmp.replace(path)
+    return path
 
 
-def _get_face_cascade() -> cv2.CascadeClassifier:
-    global _face_cascade
-    if _face_cascade is None:
+def _get_hse_net() -> Optional[cv2.dnn.Net]:
+    """Primary emotion model (AffectNet EfficientNet-B0). None if it can't be loaded."""
+    global _hse_net
+    if _hse_net is None:
         with _init_lock:
-            if _face_cascade is None:
-                path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-                _face_cascade = cv2.CascadeClassifier(path)
-                if _face_cascade.empty():
-                    raise RuntimeError("OpenCV Haar cascade for face detection failed to load")
-    return _face_cascade
+            if _hse_net is None:
+                try:
+                    path = _ensure_model(_HSE_PATH, _HSE_URL, _MIN_HSE_BYTES, "emotion (HSEmotion)")
+                    _hse_net = cv2.dnn.readNetFromONNX(str(path))
+                except Exception as exc:  # noqa: BLE001 - fall back to FER+ on any failure
+                    logger.warning("HSEmotion model unavailable, will use FER+ fallback: %s", exc)
+                    return None
+    return _hse_net
 
 
 def _get_fer_net() -> cv2.dnn.Net:
@@ -139,48 +189,157 @@ def _get_fer_net() -> cv2.dnn.Net:
     if _fer_net is None:
         with _init_lock:
             if _fer_net is None:
-                onnx = _ensure_onnx_model()
+                onnx = _ensure_model(_FER_PATH, _FER_URL, _MIN_FER_BYTES, "emotion (FER+)")
                 _fer_net = cv2.dnn.readNetFromONNX(str(onnx))
     return _fer_net
 
 
-def _largest_face_roi(gray: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
-    cascade = _get_face_cascade()
-    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(48, 48))
-    if faces is None or len(faces) == 0:
+def _get_yunet() -> Optional["cv2.FaceDetectorYN"]:
+    global _yunet
+    if _yunet is None:
+        if not hasattr(cv2, "FaceDetectorYN"):
+            return None
+        with _init_lock:
+            if _yunet is None:
+                try:
+                    path = _ensure_model(_YUNET_PATH, _YUNET_URL, _MIN_YUNET_BYTES, "face detector (YuNet)")
+                    _yunet = cv2.FaceDetectorYN.create(
+                        str(path), "", (320, 320), _YUNET_SCORE_THRESHOLD, _YUNET_NMS_THRESHOLD, 5000
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("YuNet unavailable, using Haar cascades: %s", exc)
+                    return None
+    return _yunet
+
+
+def _get_face_cascades() -> List[cv2.CascadeClassifier]:
+    global _face_cascades
+    if _face_cascades is None:
+        with _init_lock:
+            if _face_cascades is None:
+                names = [
+                    "haarcascade_frontalface_default.xml",
+                    "haarcascade_frontalface_alt2.xml",
+                    "haarcascade_profileface.xml",
+                ]
+                loaded = [cv2.CascadeClassifier(cv2.data.haarcascades + n) for n in names]
+                loaded = [c for c in loaded if not c.empty()]
+                if not loaded:
+                    raise RuntimeError("No OpenCV Haar face cascade could be loaded")
+                _face_cascades = loaded
+    return _face_cascades
+
+
+# ---------------------------------------------------------------- face detection
+
+# (x, y, w, h) box in pixels.
+Box = Tuple[int, int, int, int]
+
+
+def _detect_with_yunet(bgr: np.ndarray) -> Optional[List[Box]]:
+    det = _get_yunet()
+    if det is None:
         return None
-    return max(faces, key=lambda f: int(f[2]) * int(f[3]))
+    h, w = bgr.shape[:2]
+    det.setInputSize((w, h))
+    try:
+        _, faces = det.detect(bgr)
+    except cv2.error:
+        return None
+    out: List[Box] = []
+    if faces is not None:
+        for f in faces:
+            x, y, fw, fh = (int(round(v)) for v in f[:4])
+            if fw > 0 and fh > 0:
+                out.append((max(0, x), max(0, y), fw, fh))
+    return out
 
 
-def _analyze_opencv_ferplus(img: np.ndarray) -> Tuple[str, float, str]:
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    face = _largest_face_roi(gray)
-    if face is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No face detected in the image.")
+def _iou(a: Box, b: Box) -> float:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    x1, y1 = max(ax, bx), max(ay, by)
+    x2, y2 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    union = aw * ah + bw * bh - inter
+    return inter / union if union else 0.0
 
-    x, y, w, h = (int(v) for v in face)
-    h_img, w_img = gray.shape[:2]
-    pad = max(8, int(0.12 * max(w, h)))
+
+def _detect_with_haar(gray: np.ndarray) -> List[Box]:
+    h, w = gray.shape[:2]
+    min_side = max(48, int(0.12 * min(h, w)))
+    seen: List[Box] = []
+    for cascade in _get_face_cascades():
+        rects = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=6, minSize=(min_side, min_side))
+        for (x, y, fw, fh) in rects:
+            box = (int(x), int(y), int(fw), int(fh))
+            if not any(_iou(box, s) > 0.4 for s in seen):
+                seen.append(box)
+        if seen:
+            break
+    return seen
+
+
+def _detect_faces(bgr: np.ndarray) -> List[Box]:
+    yunet = _detect_with_yunet(bgr)
+    if yunet:
+        return yunet
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    haar = _detect_with_haar(gray)
+    if haar:
+        return haar
+    # Last resort: brighten + upscale, then retry.
+    up = cv2.resize(_clahe(gray), None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+    up_bgr = cv2.cvtColor(up, cv2.COLOR_GRAY2BGR)
+    boosted = _detect_with_yunet(up_bgr) or _detect_with_haar(up)
+    return [(int(x / 1.5), int(y / 1.5), int(w / 1.5), int(h / 1.5)) for (x, y, w, h) in (boosted or [])]
+
+
+def _crop_face(img: np.ndarray, box: Box, pad_frac: float = _FACE_PAD_FRAC) -> np.ndarray:
+    x, y, w, h = box
+    H, W = img.shape[:2]
+    pad = int(pad_frac * max(w, h))
     x0, y0 = max(0, x - pad), max(0, y - pad)
-    x1, y1 = min(w_img, x + w + pad), min(h_img, y + h + pad)
-    roi = gray[y0:y1, x0:x1]
-    if roi.size == 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No face detected in the image.")
+    x1, y1 = min(W, x + w + pad), min(H, y + h + pad)
+    return img[y0:y1, x0:x1]
 
-    # FER+ expects Nx1x64x64; blobFromImage builds NCHW from 1-channel Mat
-    blob = cv2.dnn.blobFromImage(roi, scalefactor=1.0 / 255.0, size=(64, 64), mean=(0, 0, 0), swapRB=False)
+
+# ------------------------------------------------------------------- inference
+
+
+def _hse_probs(bgr_face: np.ndarray) -> np.ndarray:
+    rgb = cv2.cvtColor(cv2.resize(bgr_face, (224, 224), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2RGB)
+    x = rgb.astype(np.float32) / 255.0
+    x = (x - _IMAGENET_MEAN) / _IMAGENET_STD
+    x = np.transpose(x, (2, 0, 1))[None]  # NCHW
+    net = _get_hse_net()
+    net.setInput(x)
+    return _softmax(net.forward().reshape(-1))
+
+
+def _analyze_hsemotion(img: np.ndarray, box: Box) -> Tuple[str, float, str]:
+    face = _crop_face(img, box)
+    # Light TTA: average upright + horizontal flip for a steadier read.
+    probs = (_hse_probs(face) + _hse_probs(cv2.flip(face, 1))) / 2.0
+    idx = int(np.argmax(probs))
+    label = _HSE_LABELS[idx]
+    mapped = _HSE_TO_APP.get(label, "neutrality")
+    desc = EMOTION_DESCRIPTIONS.get(mapped, "Thanks for sharing how you feel.")
+    return mapped, round(float(probs[idx]), 3), desc
+
+
+def _analyze_ferplus(img: np.ndarray, box: Box) -> Tuple[str, float, str]:
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    roi = _crop_face(gray, box, pad_frac=0.15)
+    roi64 = cv2.resize(roi, (64, 64), interpolation=cv2.INTER_AREA)  # plain grayscale, 0-255
+    blob = cv2.dnn.blobFromImage(roi64.astype(np.float32), 1.0, (64, 64), (0, 0, 0), swapRB=False)
     net = _get_fer_net()
     net.setInput(blob)
-    out = net.forward()
-    scores = np.array(out).reshape(-1)
-    probs = _softmax(scores)
-    idx = int(np.argmax(probs))
-    confidence = round(float(probs[idx]), 3)
-    fer_label = _FERPLUS_LABELS[idx]
-    dom = _FER_TO_DOM[fer_label]
-    mapped = EMOTION_MAP.get(dom, "neutrality")
+    probs = _softmax(np.array(net.forward()).reshape(-1))
+    label = _FERPLUS_LABELS[int(np.argmax(probs))]
+    mapped = EMOTION_MAP.get(label, "neutrality")
     desc = EMOTION_DESCRIPTIONS.get(mapped, "Thanks for sharing how you feel.")
-    return mapped, confidence, desc
+    return mapped, round(float(np.max(probs)), 3), desc
 
 
 def _analyze_deepface(img: np.ndarray) -> Tuple[str, float, str]:
@@ -188,11 +347,7 @@ def _analyze_deepface(img: np.ndarray) -> Tuple[str, float, str]:
 
     try:
         res = DeepFace.analyze(
-            img,
-            actions=["emotion"],
-            enforce_detection=True,
-            detector_backend="retinaface",
-            silent=True,
+            img, actions=["emotion"], enforce_detection=True, detector_backend="retinaface", silent=True
         )
         if isinstance(res, list):
             res = res[0]
@@ -200,39 +355,57 @@ def _analyze_deepface(img: np.ndarray) -> Tuple[str, float, str]:
         if "Face could not be detected" in str(ve):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No face detected in the image.") from ve
         raise
-
     dom = res.get("dominant_emotion", "neutral")
-    emotion_weights = res.get("emotion", {})
-    raw_confidence = emotion_weights.get(dom, 50.0)
-    confidence = round(max(0.0, min(1.0, float(raw_confidence) / 100.0)), 3)
+    raw = res.get("emotion", {}).get(dom, 50.0)
     mapped = EMOTION_MAP.get(dom, "neutrality")
-    desc = EMOTION_DESCRIPTIONS.get(mapped, "Thanks for sharing how you feel.")
-    return mapped, confidence, desc
+    return (
+        mapped,
+        round(max(0.0, min(1.0, float(raw) / 100.0)), 3),
+        EMOTION_DESCRIPTIONS.get(mapped, "Thanks for sharing how you feel."),
+    )
 
 
 def analyze_emotion(base64_img: str) -> Tuple[str, float, str]:
     try:
         img = decode_image_sync(base64_img)
-    except ValueError as exc:
+    except ValueError as exc:  # includes binascii.Error from bad base64
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or unreadable image",
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or unreadable image"
         ) from exc
 
     try:
+        # Optional high-accuracy path if the (heavy) deepface package is installed.
         if importlib.util.find_spec("deepface") is not None:
             try:
                 return _analyze_deepface(img)
             except HTTPException:
                 raise
-            except Exception as exc:
-                logger.warning("DeepFace failed, using OpenCV FER+ fallback: %s", exc)
-        return _analyze_opencv_ferplus(img)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("DeepFace failed, falling back to ONNX models: %s", exc)
+
+        work = _downscale(img)
+        faces = _detect_faces(work)
+        if not faces:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No face detected in the image.")
+        if len(faces) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Multiple faces detected. Please make sure only one face is visible.",
+            )
+        box = max(faces, key=lambda b: b[2] * b[3])
+
+        if _get_hse_net() is not None:
+            try:
+                return _analyze_hsemotion(work, box)
+            except HTTPException:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("HSEmotion inference failed, using FER+: %s", exc)
+        return _analyze_ferplus(work, box)
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Emotion analysis failed")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Image analysis failed: {exc}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Image analysis failed"
         ) from exc

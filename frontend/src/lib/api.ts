@@ -136,6 +136,21 @@ export interface ChatResponse {
   provider_used: string;
   intent?: string;
   detected_emotion?: string;
+  safety?: string;
+}
+
+export type ChatMode = "chat" | "breathing" | "grounding" | "journal_prompt" | "reframe" | "pep_talk";
+
+export interface ChatHistoryItem {
+  id: string;
+  user_message: string;
+  ai_reply: string;
+  provider_used: string;
+  created_at: string;
+}
+
+export interface ChatHistoryResponse {
+  messages: ChatHistoryItem[];
 }
 
 export type CommunityMood = SoloEmotion;
@@ -167,6 +182,18 @@ export interface GenericMessageResponse {
   message: string;
 }
 
+export interface InsightsResponse {
+  period: string;
+  check_ins: number;
+  active_days: number;
+  top_mood: string | null;
+  mood_breakdown: { mood: string; count: number }[];
+  by_source: Record<string, number>;
+  trend: "improving" | "dipping" | "steady" | "not enough data";
+  observations: string[];
+  generated_by: string;
+}
+
 export const api = {
   signup: (payload: { name: string; email: string; password: string }) =>
     request<AuthTokens>("/api/auth/signup", "POST", payload),
@@ -189,8 +216,10 @@ export const api = {
     request<EmotionResponse>("/api/emotion/detect", "POST", payload),
   attachEmotionReason: (payload: { emotion_id: string; text: string }) =>
     request<{ message: string; reason: string | null }>("/api/emotion/attach-reason", "POST", payload),
-  sendChat: (payload: { message: string; emotion_context?: string }) =>
+  sendChat: (payload: { message: string; emotion_context?: string; mode?: ChatMode }) =>
     request<ChatResponse>("/api/chat/send", "POST", payload),
+  getChatHistory: () => request<ChatHistoryResponse>("/api/chat/history", "GET"),
+  clearChat: () => request<GenericMessageResponse>("/api/chat/clear", "POST"),
 
   joinCommunity: (community_name: string) =>
     request<GenericMessageResponse>("/api/community/join", "POST", { community_name }),
@@ -233,4 +262,7 @@ export const api = {
 
   soloAnalyze: (payload: { text: string; session_id?: string | null }) =>
     request<SoloAnalyzeResponse>("/api/solo/analyze", "POST", payload),
+
+  getInsights: (range: "week" | "month" = "month") =>
+    request<InsightsResponse>(`/api/insights/summary?range=${range}`, "GET"),
 };

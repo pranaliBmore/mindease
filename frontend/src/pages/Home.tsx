@@ -50,6 +50,9 @@ const Home = () => {
               <button onClick={() => navigate("/path-selection")} className="btn-primary">
                 Begin Your Journey
               </button>
+              <button onClick={() => navigate("/insights")} className="btn-ghost">
+                View Insights
+              </button>
               <button onClick={() => navigate("/community")} className="btn-ghost">
                 Explore Community
               </button>

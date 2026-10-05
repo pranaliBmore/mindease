@@ -30,12 +30,17 @@ class Settings(BaseSettings):
     gpt4all_model_path: str = ""
     
     groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-20b"
+
+    # Fernet key (urlsafe base64, 32 bytes). Blank = private text is stored as plaintext.
+    data_encryption_key: str = ""
 
     cors_origins: str = Field(default="http://localhost:3000,http://localhost:5173,http://localhost:8080")
     cors_origin_regex: str = (
         r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?$"
     )
     rate_limit_per_minute: int = 60
+    rate_limit_auth_per_minute: int = 10
 
     @property
     def cors_origins_list(self) -> List[str]:

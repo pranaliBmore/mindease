@@ -1,0 +1,17 @@
+# Netlify config for the MindEase frontend (Vite + React SPA).
+# Set VITE_API_BASE_URL in the Netlify dashboard (Site settings -> Environment variables)
+# to the deployed backend URL, e.g. https://mindease-backend.onrender.com
+
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA fallback: every route serves index.html so client-side routing works.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

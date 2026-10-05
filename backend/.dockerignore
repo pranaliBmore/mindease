@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.production.example
+.venv
+.venv311
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+*.md
+run_backend.sh
+check_community_data.py
+clear_community_data.py
+app/emotion_model/weights/*.onnx
+app/emotion_model/weights/*.part
+.git
+.gitignore

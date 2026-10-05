@@ -13,7 +13,9 @@ from app.config.database import db
 from app.config.settings import get_settings
 from app.models.solo_model import build_solo_analysis_document
 from app.services.local_nlp import classify_emotion_vader
+from app.services.wellness_content import WELLNESS_CONTENT
 from app.schemas.solo_schema import SoloEmotion
+from app.utils.crypto import encrypt_text
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -107,157 +109,8 @@ def _aggregate_categories(rows: list[dict]) -> Tuple[SoloEmotion, float, dict[st
 
 
 def _curated_bank() -> dict[SoloEmotion, dict[str, list]]:
-    # This is a large bank (not one static response) and is randomized per request.
-    base_videos = {
-        "stress": [
-            {"title": "Box Breathing (4-4-4-4)", "url": "https://www.youtube.com/watch?v=tEmt1Znux58"},
-            {"title": "5-Minute Reset for Stress", "url": "https://www.youtube.com/watch?v=ntfcfJ28eiU"},
-        ],
-        "anxiety": [
-            {"title": "Grounding: 5-4-3-2-1", "url": "https://www.youtube.com/watch?v=30VMIEmA114"},
-            {"title": "Short Anxiety Relief Meditation", "url": "https://www.youtube.com/watch?v=O-6f5wQXSu8"},
-        ],
-        "sadness": [
-            {"title": "Self-Compassion Break", "url": "https://www.youtube.com/watch?v=rTFN8t9SXiQ"},
-            {"title": "Gentle Mood Lift Walk", "url": "https://www.youtube.com/watch?v=0e5lM3pI7xY"},
-        ],
-        "happiness": [
-            {"title": "Savoring Practice", "url": "https://www.youtube.com/watch?v=ZToicYcHIOU"},
-            {"title": "Gratitude in 3 Minutes", "url": "https://www.youtube.com/watch?v=JMd1CcR3xXY"},
-        ],
-        "anger": [
-            {"title": "Cooling Down Fast (Anger)", "url": "https://www.youtube.com/watch?v=BsVq5R_F6RA"},
-            {"title": "Progressive Muscle Relaxation", "url": "https://www.youtube.com/watch?v=86HUcX8ZtAk"},
-        ],
-        "fear": [
-            {"title": "Fear to Calm: Breath + Body", "url": "https://www.youtube.com/watch?v=1Dv-ldGLnIY"},
-            {"title": "Safe Place Visualization", "url": "https://www.youtube.com/watch?v=IN5z4I6zBzs"},
-        ],
-        "neutrality": [
-            {"title": "Check-In: Name the Feeling", "url": "https://www.youtube.com/watch?v=Zt9Mu5c9wqA"},
-            {"title": "Mindful Minute", "url": "https://www.youtube.com/watch?v=Hzi3PDz1AWU"},
-        ],
-    }
-    base_quotes = {
-        "stress": [
-            "You don’t have to do everything at once—just the next kind step.",
-            "Even when you feel behind, your effort still counts.",
-            "Breathe first. Then choose one small thing to steady yourself.",
-        ],
-        "anxiety": [
-            "Anxiety is loud, but it isn’t always accurate.",
-            "You can be scared and still be capable.",
-            "Let the feeling be present without letting it drive.",
-        ],
-        "sadness": [
-            "Sadness asks for gentleness, not speed.",
-            "You’re allowed to take up space with what you feel.",
-            "Small care is still real care.",
-        ],
-        "happiness": [
-            "This moment matters—let yourself actually receive it.",
-            "Joy grows when you notice it on purpose.",
-            "Keep what works. Repeat what helps.",
-        ],
-        "anger": [
-            "Anger often protects something important—listen without exploding.",
-            "You can set boundaries without burning bridges.",
-            "Strong feelings deserve skillful handling.",
-        ],
-        "fear": [
-            "Courage is feeling fear and moving with care anyway.",
-            "You can be uncertain and still be safe in this moment.",
-            "Tiny steps are still forward.",
-        ],
-        "neutrality": [
-            "Neutral is a valid state—use it to reset and choose intentionally.",
-            "Clarity often arrives after a calm pause.",
-            "Nothing urgent: just notice what you need next.",
-        ],
-    }
-    base_exercises = {
-        "stress": [
-            "Two-minute box breathing: inhale 4, hold 4, exhale 4, hold 4—repeat 6 cycles.",
-            "Brain dump: write the top 5 worries, then circle the one you can influence today.",
-            "Shoulders + jaw release: 5 slow shoulder rolls, unclench jaw, exhale longer than inhale.",
-        ],
-        "anxiety": [
-            "5-4-3-2-1 grounding: name 5 things you see… down to 1 thing you taste.",
-            "Worry container: set a 10-minute timer to worry on paper, then stop when it ends.",
-            "Label the sensation: “tight chest,” “fast thoughts”—name it, then breathe out slowly.",
-        ],
-        "sadness": [
-            "Compassion note: write 3 lines to yourself as if to a friend.",
-            "Tiny activation: stand up, drink water, open a window, and take 10 slow steps.",
-            "Mood check: “What would make today 2% easier?” Do only that.",
-        ],
-        "happiness": [
-            "Savoring: replay one good moment for 20 seconds, noticing colors/sounds/body feelings.",
-            "Share it: text one person a simple win you noticed today.",
-            "Gratitude specifics: write one thing you appreciate and why it mattered.",
-        ],
-        "anger": [
-            "Physiological sigh: inhale, top-up inhale, long slow exhale—repeat 3 times.",
-            "Boundary script: “When X happens, I feel Y. I need Z.” Write one sentence.",
-            "Pause & cool: splash cold water or hold something cool for 30 seconds, then reassess.",
-        ],
-        "fear": [
-            "Safety scan: name 3 signals that you’re safe right now (place, body, support).",
-            "If-then plan: “If I start spiraling, then I will breathe + message someone.”",
-            "Approach ladder: write the smallest next step (30 seconds) toward what you’re avoiding.",
-        ],
-        "neutrality": [
-            "One-minute check-in: “What’s my energy level (0–10)?” “What do I need?”",
-            "Micro-plan: choose 1 task, 1 break, 1 kindness for today.",
-            "Mindful sip: drink water slowly and notice temperature and breath.",
-        ],
-    }
-    base_tips = {
-        "stress": [
-            "Pick one priority for the next hour and let the rest wait.",
-            "Lower the bar: define “good enough” for today in one sentence.",
-            "If your body is tense, fix the body first—then think.",
-        ],
-        "anxiety": [
-            "Ask: “Is this a possibility or a certainty?” Treat it like a possibility.",
-            "Reduce inputs for 10 minutes (notifications, scrolling, caffeine).",
-            "Choose the smallest next action and do it imperfectly.",
-        ],
-        "sadness": [
-            "Don’t negotiate with yourself—do a tiny caring action first, feelings can follow.",
-            "Reach for connection: a short message counts.",
-            "Make your environment softer (light, warm drink, music).",
-        ],
-        "happiness": [
-            "Capture the win: write one sentence so you can return to it later.",
-            "Celebrate without minimizing—no “but…” for 60 seconds.",
-            "Turn it into a habit: what helped today that you can repeat tomorrow?",
-        ],
-        "anger": [
-            "Delay the reply: draft it, don’t send it, revisit in 20 minutes.",
-            "Name the need under the anger (respect, safety, fairness).",
-            "Move your body for 2 minutes to discharge adrenaline before speaking.",
-        ],
-        "fear": [
-            "Anchor to what’s controllable: time, breath, next step, support.",
-            "If it’s not dangerous right now, you can practice staying present for 30 seconds.",
-            "Treat thoughts like weather—notice them, don’t obey them.",
-        ],
-        "neutrality": [
-            "If you feel “nothing,” try “curious” instead of “stuck.”",
-            "Neutral is a good time to plan: pick a tiny goal and a tiny reward.",
-            "If you’re okay, protect it—take a small preventive break.",
-        ],
-    }
-    return {
-        cat: {
-            "videos": base_videos[cat],
-            "quotes": base_quotes[cat],
-            "exercises": base_exercises[cat],
-            "tips": base_tips[cat],
-        }
-        for cat in base_videos.keys()
-    }
+    """Randomised-per-request wellness content, keyed by mood. See wellness_content.py."""
+    return WELLNESS_CONTENT
 
 
 class SoloService:
@@ -370,7 +223,7 @@ class SoloService:
         doc = build_solo_analysis_document(
             user_id=str(user["_id"]),
             session_id=sid,
-            text=clean,
+            text=encrypt_text(clean),
             emotion=emotion,
             confidence=confidence,
             model_used=model_used,

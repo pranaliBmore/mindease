@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional, Tuple
 
 import httpx
@@ -22,14 +23,16 @@ class AIProviderService:
             return None
         try:
             client = AsyncGroq(api_key=settings.groq_api_key)
+            # NOTE: llama-3.1-8b-instant was decommissioned by Groq (404). openai/gpt-oss-20b
+            # is small, fast and currently available; override with GROQ_MODEL if needed.
             completion = await client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model=os.getenv("GROQ_MODEL") or settings.groq_model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=220
+                temperature=0.6,
+                max_tokens=220,
             )
             if completion.choices:
-                return str(completion.choices[0].message.content).strip()
+                return str(completion.choices[0].message.content or "").strip()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Groq request failed: %s", exc)
         return None
