@@ -2,7 +2,7 @@ import logging
 from datetime import timedelta, timezone
 from pathlib import Path
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 
 from app.config.database import db
 from app.config.settings import get_settings
@@ -20,7 +20,7 @@ _ALLOWED_AVATAR_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp"
 
 
 class AuthService:
-    async def signup(self, payload: SignupRequest) -> dict:
+    async def signup(self, payload: SignupRequest, background_tasks: BackgroundTasks) -> dict:
         existing = await db.users.find_one({"email": payload.email.lower()})
         if existing:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
@@ -33,12 +33,11 @@ class AuthService:
         insert_result = await db.users.insert_one(user_doc)
         user_id = str(insert_result.inserted_id)
 
-        try:
-            await self._issue_and_send_otp(user_id, payload.email.lower(), payload.name.strip())
-        except HTTPException:
-            # Account creation should not fail just because the verification email
-            # didn't go out - the user can request a resend from /verify-email.
-            logger.warning("Signup OTP email failed for %s; account created anyway", user_id)
+        # The OTP is generated and stored synchronously (fast, DB-only); the actual
+        # email send runs after the response goes out. SMTP over the public internet
+        # (especially from a cloud host to Gmail) can be slow or occasionally stall,
+        # and signup must never hang waiting on it.
+        await self._issue_otp(background_tasks, user_id, payload.email.lower(), payload.name.strip())
 
         return {
             "access_token": create_access_token(user_id, token_version=0),
@@ -70,7 +69,9 @@ class AuthService:
 
     # --- Email verification (OTP) -------------------------------------------------
 
-    async def _issue_and_send_otp(self, user_id: str, email: str, name: str) -> None:
+    async def _issue_otp(
+        self, background_tasks: BackgroundTasks, user_id: str, email: str, name: str,
+    ) -> None:
         otp = generate_otp()
         await db.users.update_one(
             {"_id": to_object_id(user_id)},
@@ -82,12 +83,20 @@ class AuthService:
                 },
             },
         )
-        await send_otp_email(email, name, otp)
+        background_tasks.add_task(self._send_otp_background, email, name, otp)
 
-    async def resend_otp(self, user: dict) -> dict:
+    async def _send_otp_background(self, email: str, name: str, otp: str) -> None:
+        try:
+            await send_otp_email(email, name, otp)
+        except HTTPException as exc:
+            # Runs after the HTTP response is already sent - nowhere to surface this
+            # but the log. The user can hit "Resend code" if it never arrives.
+            logger.warning("Background OTP email send failed for %s: %s", email, exc.detail)
+
+    async def resend_otp(self, user: dict, background_tasks: BackgroundTasks) -> dict:
         if user.get("email_verified"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already verified")
-        await self._issue_and_send_otp(str(user["_id"]), user["email"], user.get("name", ""))
+        await self._issue_otp(background_tasks, str(user["_id"]), user["email"], user.get("name", ""))
         return {"message": f"A new verification code was sent to {user['email']}"}
 
     async def verify_email(self, user: dict, otp: str) -> dict:

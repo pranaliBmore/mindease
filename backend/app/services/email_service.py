@@ -160,6 +160,7 @@ async def send_otp_email(to_email: str, to_name: str, otp: str) -> None:
             username=settings.smtp_username or None,
             password=settings.smtp_password or None,
             start_tls=settings.smtp_use_tls,
+            timeout=15,
         )
         logger.info("OTP email sent to %s via %s", to_email, settings.smtp_host)
     except Exception as exc:  # noqa: BLE001

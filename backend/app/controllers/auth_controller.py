@@ -1,4 +1,4 @@
-from fastapi import UploadFile
+from fastapi import BackgroundTasks, UploadFile
 
 from app.schemas.auth_schema import LoginRequest, SignupRequest, UpdateProfileRequest
 from app.services.auth_service import AuthService
@@ -6,8 +6,8 @@ from app.services.auth_service import AuthService
 auth_service = AuthService()
 
 
-async def signup_controller(payload: SignupRequest) -> dict:
-    return await auth_service.signup(payload)
+async def signup_controller(payload: SignupRequest, background_tasks: BackgroundTasks) -> dict:
+    return await auth_service.signup(payload, background_tasks)
 
 
 async def login_controller(payload: LoginRequest) -> dict:
@@ -26,8 +26,8 @@ async def verify_email_controller(user: dict, otp: str) -> dict:
     return await auth_service.verify_email(user, otp)
 
 
-async def resend_otp_controller(user: dict) -> dict:
-    return await auth_service.resend_otp(user)
+async def resend_otp_controller(user: dict, background_tasks: BackgroundTasks) -> dict:
+    return await auth_service.resend_otp(user, background_tasks)
 
 
 async def update_profile_controller(user: dict, payload: UpdateProfileRequest) -> dict:

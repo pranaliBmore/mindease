@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Request, UploadFile
 
 from app.controllers.auth_controller import (
     login_controller,
@@ -32,8 +32,8 @@ _OTP_LIMIT = "5/minute"
 
 @router.post("/signup", response_model=TokenResponse)
 @limiter.limit(_AUTH_LIMIT)
-async def signup(request: Request, payload: SignupRequest):  # noqa: ARG001 - request required by slowapi
-    return await signup_controller(payload)
+async def signup(request: Request, payload: SignupRequest, background_tasks: BackgroundTasks):  # noqa: ARG001
+    return await signup_controller(payload, background_tasks)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -64,8 +64,12 @@ async def verify_email(
 
 @router.post("/resend-otp", response_model=MessageResponse)
 @limiter.limit(_OTP_LIMIT)
-async def resend_otp(request: Request, current_user: dict = Depends(get_current_user)):  # noqa: ARG001
-    return await resend_otp_controller(current_user)
+async def resend_otp(
+    request: Request,  # noqa: ARG001 - request required by slowapi
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    return await resend_otp_controller(current_user, background_tasks)
 
 
 @router.patch("/profile", response_model=UserOut)
