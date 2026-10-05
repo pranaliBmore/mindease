@@ -13,6 +13,7 @@ const EmotionAnalysis = lazy(() => import("./pages/EmotionAnalysis"));
 const ChatAI = lazy(() => import("./pages/ChatAI"));
 const Insights = lazy(() => import("./pages/Insights"));
 const Community = lazy(() => import("./pages/Community"));
+const Match = lazy(() => import("./pages/Match"));
 const Expression = lazy(() => import("./pages/Expression"));
 const ContentSelection = lazy(() => import("./pages/ContentSelection"));
 const Feedback = lazy(() => import("./pages/Feedback"));
@@ -36,6 +37,7 @@ const App = () => (
             <Route path="/chat-ai" element={<ChatAI />} />
             <Route path="/insights" element={<Insights />} />
             <Route path="/community" element={<Community />} />
+            <Route path="/match" element={<Match />} />
             <Route path="/expression" element={<Expression />} />
             <Route path="/content-selection" element={<ContentSelection />} />
             <Route path="/feedback" element={<Feedback />} />

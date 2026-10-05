@@ -56,6 +56,9 @@ const Home = () => {
               <button onClick={() => navigate("/community")} className="btn-ghost">
                 Explore Community
               </button>
+              <button onClick={() => navigate("/match")} className="btn-ghost">
+                Find Someone to Talk To
+              </button>
             </div>
           </motion.div>
         </div>

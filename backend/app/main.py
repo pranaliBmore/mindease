@@ -18,6 +18,7 @@ from app.routes.connection_routes import router as connection_router
 from app.routes.emotion_routes import router as emotion_router
 from app.routes.feedback_routes import router as feedback_router
 from app.routes.insights_routes import router as insights_router
+from app.routes.match_routes import router as match_router
 from app.routes.social_ws import router as social_ws_router
 from app.routes.solo_routes import router as solo_router
 
@@ -135,3 +136,4 @@ app.include_router(feedback_router)
 app.include_router(social_ws_router)
 app.include_router(solo_router)
 app.include_router(insights_router)
+app.include_router(match_router)

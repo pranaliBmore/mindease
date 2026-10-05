@@ -4,6 +4,8 @@ from fastapi import APIRouter, HTTPException, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from app.realtime.social_manager import social_manager
+from app.services.ai_engine import CRISIS_SUPPORT_MESSAGE, check_crisis
+from app.services.match_service import match_service
 from app.services.social_service import social_service
 from app.utils.ws_auth import get_user_from_access_token
 
@@ -51,6 +53,27 @@ async def social_websocket(websocket: WebSocket) -> None:
                     payload = {"type": "dm", "message": msg}
                     await social_manager.send_to_user(to_uid, payload)
                     await social_manager.send_to_user(uid, payload)
+                except HTTPException as exc:
+                    detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+                    await websocket.send_json({"type": "error", "detail": detail})
+                continue
+            if msg_type == "match_message":
+                session_id = data.get("session_id")
+                text = data.get("text", "")
+                if not isinstance(session_id, str) or not isinstance(text, str):
+                    await websocket.send_json({"type": "error", "detail": "Invalid payload"})
+                    continue
+                try:
+                    result = await match_service.send_message(user, session_id, text)
+                    msg = result["message"]
+                    peer_uid = result["peer_user_id"]
+                    payload = {"type": "match_message", "message": msg}
+                    await social_manager.send_to_user(peer_uid, payload)
+                    await social_manager.send_to_user(uid, payload)
+                    if check_crisis(text):
+                        await social_manager.send_to_user(
+                            uid, {"type": "match_safety", "detail": CRISIS_SUPPORT_MESSAGE},
+                        )
                 except HTTPException as exc:
                     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
                     await websocket.send_json({"type": "error", "detail": detail})

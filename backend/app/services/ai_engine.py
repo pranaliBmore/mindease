@@ -70,6 +70,14 @@ def _looks_like_crisis(text: str) -> bool:
     return bool(_CRISIS_RE.search(text or ""))
 
 
+def check_crisis(text: str) -> bool:
+    """Public wrapper so other features (e.g. peer matching) can reuse the same crisis detector."""
+    return _looks_like_crisis(text)
+
+
+CRISIS_SUPPORT_MESSAGE = _CRISIS_REPLY
+
+
 class AIEngine:
     def __init__(self) -> None:
         self.providers = AIProviderService()

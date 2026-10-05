@@ -194,6 +194,39 @@ export interface InsightsResponse {
   generated_by: string;
 }
 
+export type MatchTopic = "work_study" | "relationships" | "family" | "health" | "loneliness" | "other";
+export type MatchSupportStyle = "just_listen" | "share_experience" | "give_advice" | "light_distraction";
+export type MatchGoal = "feel_heard" | "feel_less_alone" | "get_practical_tips" | "laugh_a_bit";
+
+export interface MatchAnswers {
+  mood: SoloEmotion;
+  topic: MatchTopic;
+  support_style: MatchSupportStyle;
+  goal: MatchGoal;
+}
+
+export interface MatchSession {
+  session_id: string;
+  my_alias: string;
+  peer_alias: string;
+  status: "active" | "ended";
+  created_at: string;
+}
+
+export interface MatchStateResponse {
+  status: "idle" | "waiting" | "matched";
+  session: MatchSession | null;
+  waiting_since: string | null;
+}
+
+export interface MatchMessageItem {
+  id: string;
+  session_id: string;
+  from_user_id: string;
+  body: string;
+  created_at: string | null;
+}
+
 export const api = {
   signup: (payload: { name: string; email: string; password: string }) =>
     request<AuthTokens>("/api/auth/signup", "POST", payload),
@@ -265,4 +298,16 @@ export const api = {
 
   getInsights: (range: "week" | "month" = "month") =>
     request<InsightsResponse>(`/api/insights/summary?range=${range}`, "GET"),
+
+  startMatch: (answers: MatchAnswers) => request<MatchStateResponse>("/api/match/start", "POST", answers),
+  getMatchState: () => request<MatchStateResponse>("/api/match/state", "GET"),
+  cancelMatch: () => request<GenericMessageResponse>("/api/match/cancel", "POST"),
+  getMatchMessages: (sessionId: string, limit = 100) =>
+    request<MatchMessageItem[]>(`/api/match/messages/${encodeURIComponent(sessionId)}?limit=${limit}`, "GET"),
+  revealMatch: (sessionId: string) =>
+    request<GenericMessageResponse>("/api/match/reveal", "POST", { session_id: sessionId }),
+  endMatch: (sessionId: string) =>
+    request<GenericMessageResponse>("/api/match/end", "POST", { session_id: sessionId }),
+  reportMatch: (sessionId: string, reason: string) =>
+    request<GenericMessageResponse>("/api/match/report", "POST", { session_id: sessionId, reason }),
 };

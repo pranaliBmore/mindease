@@ -20,3 +20,8 @@ async def ensure_indexes() -> None:
     await db.solo_analyses.create_index([("user_id", 1), ("created_at", -1)])
     await db.community_posts.create_index([("created_at", -1)])
     await db.communities.create_index("name", unique=True)
+    await db.match_queue.create_index("user_id", unique=True)
+    await db.match_sessions.create_index([("status", 1), ("user_a", 1)])
+    await db.match_sessions.create_index([("status", 1), ("user_b", 1)])
+    await db.match_messages.create_index([("session_id", 1), ("created_at", 1)])
+    await db.match_blocks.create_index("pair_key", unique=True)

@@ -17,6 +17,7 @@ import {
   Check,
   X,
   Clock,
+  HeartHandshake,
 } from "lucide-react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useSocialWebSocket } from "@/hooks/useSocialWebSocket";
@@ -368,6 +369,28 @@ const Community = () => {
           <p className="text-muted-foreground max-w-xl mx-auto">
             Join the shared space, send connection requests, and chat in real time once both sides agree to connect.
           </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          onClick={() => navigate("/match")}
+          className="glass-card-strong p-6 mb-8 cursor-pointer group hover:shadow-elevated transition-all duration-500 hover:-translate-y-1 flex items-center gap-5"
+        >
+          <div className="w-14 h-14 rounded-2xl gradient-primary flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+            <HeartHandshake className="w-7 h-7 text-primary-foreground" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-display font-semibold text-foreground mb-1">
+              Don't know anyone here yet? Find a match
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Answer a few quick questions and we'll anonymously pair you with someone else going through something
+              similar, to talk and help each other feel better.
+            </p>
+          </div>
+          <ArrowRight className="w-5 h-5 text-primary shrink-0 group-hover:translate-x-1 transition-transform" />
         </motion.div>
 
         <div className="glass-card-strong p-6 mb-8 space-y-4">
