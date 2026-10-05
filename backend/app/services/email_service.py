@@ -130,6 +130,32 @@ def _otp_email_html(name: str, otp: str, expire_minutes: int, affirmation: str) 
 </html>"""
 
 
+async def _attempt_send(message: EmailMessage, port: int, implicit_tls: bool) -> None:
+    """One connection attempt. 465 = implicit TLS from the first byte; 587/anything
+    else = plaintext connect then STARTTLS. Hosts that block one submission port
+    sometimes allow the other, so callers try both before giving up."""
+    if implicit_tls:
+        await aiosmtplib.send(
+            message,
+            hostname=settings.smtp_host,
+            port=port,
+            username=settings.smtp_username or None,
+            password=settings.smtp_password or None,
+            use_tls=True,
+            timeout=15,
+        )
+    else:
+        await aiosmtplib.send(
+            message,
+            hostname=settings.smtp_host,
+            port=port,
+            username=settings.smtp_username or None,
+            password=settings.smtp_password or None,
+            start_tls=True,
+            timeout=15,
+        )
+
+
 async def send_otp_email(to_email: str, to_name: str, otp: str) -> None:
     affirmation = random.choice(_AFFIRMATIONS)
     subject = "A little sunshine for you ☀️ - your MindEase code inside"
@@ -152,20 +178,41 @@ async def send_otp_email(to_email: str, to_name: str, otp: str) -> None:
         subtype="html",
     )
 
+    # Try the configured port/mode first, then the other submission port as a
+    # fallback - some hosts block 587 (STARTTLS) but allow 465 (implicit TLS), or
+    # vice versa, and there's no way to know which without just trying both.
+    configured_port = settings.smtp_port
+    configured_implicit = configured_port == 465
+    fallback_port = 465 if configured_port != 465 else 587
+
+    first_error: Exception | None = None
     try:
-        await aiosmtplib.send(
-            message,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_username or None,
-            password=settings.smtp_password or None,
-            start_tls=settings.smtp_use_tls,
-            timeout=15,
-        )
-        logger.info("OTP email sent to %s via %s", to_email, settings.smtp_host)
+        await _attempt_send(message, configured_port, configured_implicit)
+        logger.info("OTP email sent to %s via %s:%s", to_email, settings.smtp_host, configured_port)
+        return
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Failed to send OTP email to %s", to_email)
+        first_error = exc
+        logger.warning(
+            "SMTP send to %s via port %s failed (%s), retrying on port %s",
+            to_email,
+            configured_port,
+            exc,
+            fallback_port,
+        )
+
+    try:
+        await _attempt_send(message, fallback_port, fallback_port == 465)
+        logger.info(
+            "OTP email sent to %s via %s:%s (fallback port)", to_email, settings.smtp_host, fallback_port,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Failed to send OTP email to %s on both port %s and fallback port %s",
+            to_email,
+            configured_port,
+            fallback_port,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not send the verification email. Please try again shortly.",
-        ) from exc
+        ) from (exc if first_error is None else first_error)
