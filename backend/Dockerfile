@@ -19,9 +19,11 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY app ./app
 COPY scripts ./scripts
 
-# Bake the model weights into the image so the first request is fast.
-# A network failure here does not break the build (script always exits 0).
-RUN python -m scripts.fetch_models || true
+# Model weights are no longer pre-fetched at build time (3 sequential downloads,
+# up to 120s each worst case, was the slow/unpredictable part of the build).
+# They lazy-download on the first real /api/emotion/detect call instead - that one
+# request is ~20-30s slower, everything after it is fast since the files are cached
+# to local disk for the life of the container.
 
 # Run as a non-root user.
 RUN useradd -m appuser && chown -R appuser /app
