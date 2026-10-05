@@ -30,14 +30,17 @@ class AuthService:
             email=payload.email.lower(),
             password_hash=hash_password(payload.password),
         )
+        if not settings.require_email_verification:
+            user_doc["email_verified"] = True
         insert_result = await db.users.insert_one(user_doc)
         user_id = str(insert_result.inserted_id)
 
-        # The OTP is generated and stored synchronously (fast, DB-only); the actual
-        # email send runs after the response goes out. SMTP over the public internet
-        # (especially from a cloud host to Gmail) can be slow or occasionally stall,
-        # and signup must never hang waiting on it.
-        await self._issue_otp(background_tasks, user_id, payload.email.lower(), payload.name.strip())
+        if settings.require_email_verification:
+            # The OTP is generated and stored synchronously (fast, DB-only); the actual
+            # email send runs after the response goes out. SMTP over the public internet
+            # (especially from a cloud host to Gmail) can be slow or occasionally stall,
+            # and signup must never hang waiting on it.
+            await self._issue_otp(background_tasks, user_id, payload.email.lower(), payload.name.strip())
 
         return {
             "access_token": create_access_token(user_id, token_version=0),

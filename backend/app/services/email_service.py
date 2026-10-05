@@ -1,11 +1,15 @@
-"""Sends transactional email over SMTP.
+"""Sends transactional email.
 
-This is the Python equivalent of Nodemailer (same SMTP protocol, same job) - there is
-no Node runtime in this backend, so aiosmtplib is the direct, non-workaround substitute.
+Two transports:
+- Brevo's HTTP API (https://api.brevo.com) when BREVO_API_KEY is set - sends over HTTPS,
+  so it works on hosts that block outbound SMTP (confirmed on Render: both port 587 and
+  465 timed out connecting to smtp.gmail.com - a hard platform-level network block, not a
+  config issue). This is the production path.
+- Raw SMTP via aiosmtplib otherwise - the Python equivalent of Nodemailer (same protocol,
+  same job; there's no Node runtime in this backend). Works fine for local dev.
 
-Dev fallback: with SMTP_HOST unset, the OTP is logged instead of emailed, mirroring the
-app's existing "optional, fail soft" pattern for AI providers and DATA_ENCRYPTION_KEY -
-local dev needs no mail account configured.
+Dev fallback: with neither configured, the OTP is logged instead of emailed, mirroring the
+app's existing "optional, fail soft" pattern for AI providers and DATA_ENCRYPTION_KEY.
 """
 
 import html
@@ -14,6 +18,7 @@ import random
 from email.message import EmailMessage
 
 import aiosmtplib
+import httpx
 from fastapi import HTTPException, status
 
 from app.config.settings import get_settings
@@ -156,27 +161,41 @@ async def _attempt_send(message: EmailMessage, port: int, implicit_tls: bool) ->
         )
 
 
-async def send_otp_email(to_email: str, to_name: str, otp: str) -> None:
-    affirmation = random.choice(_AFFIRMATIONS)
-    subject = "A little sunshine for you ☀️ - your MindEase code inside"
+async def _send_via_brevo(to_email: str, to_name: str, subject: str, text: str, html_body: str) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": settings.brevo_api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json={
+                    "sender": {"name": settings.smtp_from_name, "email": settings.smtp_from_email},
+                    "to": [{"email": to_email, "name": to_name or to_email}],
+                    "subject": subject,
+                    "htmlContent": html_body,
+                    "textContent": text,
+                },
+            )
+        resp.raise_for_status()
+        logger.info("OTP email sent to %s via Brevo", to_email)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Brevo send failed for %s", to_email)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not send the verification email. Please try again shortly.",
+        ) from exc
 
-    if not settings.smtp_host or not settings.smtp_from_email:
-        logger.warning(
-            "SMTP not configured; verification code for %s is %s (dev fallback, not emailed)",
-            to_email,
-            otp,
-        )
-        return
 
+async def _send_via_smtp(to_email: str, to_name: str, subject: str, text: str, html_body: str) -> None:
     message = EmailMessage()
     message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
     message["To"] = to_email
     message["Subject"] = subject
-    message.set_content(_otp_email_text(to_name, otp, settings.otp_expire_minutes, affirmation))
-    message.add_alternative(
-        _otp_email_html(to_name, otp, settings.otp_expire_minutes, affirmation),
-        subtype="html",
-    )
+    message.set_content(text)
+    message.add_alternative(html_body, subtype="html")
 
     # Try the configured port/mode first, then the other submission port as a
     # fallback - some hosts block 587 (STARTTLS) but allow 465 (implicit TLS), or
@@ -216,3 +235,24 @@ async def send_otp_email(to_email: str, to_name: str, otp: str) -> None:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not send the verification email. Please try again shortly.",
         ) from (exc if first_error is None else first_error)
+
+
+async def send_otp_email(to_email: str, to_name: str, otp: str) -> None:
+    affirmation = random.choice(_AFFIRMATIONS)
+    subject = "A little sunshine for you ☀️ - your MindEase code inside"
+
+    if not settings.smtp_from_email or (not settings.brevo_api_key and not settings.smtp_host):
+        logger.warning(
+            "No email transport configured; verification code for %s is %s (dev fallback, not emailed)",
+            to_email,
+            otp,
+        )
+        return
+
+    text = _otp_email_text(to_name, otp, settings.otp_expire_minutes, affirmation)
+    html_body = _otp_email_html(to_name, otp, settings.otp_expire_minutes, affirmation)
+
+    if settings.brevo_api_key:
+        await _send_via_brevo(to_email, to_name, subject, text, html_body)
+    else:
+        await _send_via_smtp(to_email, to_name, subject, text, html_body)

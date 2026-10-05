@@ -45,9 +45,18 @@ class Settings(BaseSettings):
     smtp_from_name: str = "MindEase"
     smtp_use_tls: bool = True
 
+    # Brevo HTTP email API (https://app.brevo.com/settings/keys/api) - sends over HTTPS,
+    # so it works on hosts (e.g. Render) that block outbound SMTP. Takes priority over
+    # SMTP above when set; SMTP stays as the local-dev path since it works fine there.
+    brevo_api_key: str = ""
+
     otp_expire_minutes: int = 10
     otp_length: int = 6
     otp_max_attempts: int = 5
+    # Temporary kill switch while Brevo/SMTP email delivery is unresolved in production -
+    # new accounts are marked verified immediately, no OTP generated or sent. Flip back to
+    # true once email sending is confirmed working.
+    require_email_verification: bool = False
 
     avatar_upload_dir: str = "uploads/avatars"
     avatar_max_bytes: int = 5 * 1024 * 1024

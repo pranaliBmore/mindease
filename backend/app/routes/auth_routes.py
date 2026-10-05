@@ -80,18 +80,3 @@ async def update_profile(payload: UpdateProfileRequest, current_user: dict = Dep
 @router.post("/avatar", response_model=AvatarResponse)
 async def upload_avatar(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     return await upload_avatar_controller(current_user, file)
-
-
-# TEMPORARY DEBUG ROUTE - sends the test email synchronously (not via BackgroundTasks) so
-# the real exception, if any, comes straight back in the HTTP response. Remove once the
-# production SMTP issue is diagnosed.
-@router.post("/debug-smtp-test", response_model=None)
-async def debug_smtp_test(current_user: dict = Depends(get_current_user)):
-    from app.services.email_service import send_otp_email
-
-    try:
-        await send_otp_email(current_user["email"], current_user.get("name", "Debug"), "123456")
-        return {"ok": True, "message": f"Sent to {current_user['email']}"}
-    except Exception as exc:  # noqa: BLE001
-        real = exc.__cause__ or exc
-        return {"ok": False, "error_type": type(real).__name__, "error_detail": str(real)}

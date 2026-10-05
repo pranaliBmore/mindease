@@ -19,14 +19,8 @@ services:
         value: openai/gpt-oss-20b
       - key: CORS_ORIGIN_REGEX
         value: ""
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
       - key: SMTP_FROM_NAME
         value: MindEase
-      - key: SMTP_USE_TLS
-        value: "true"
       - key: MONGODB_URL          # MongoDB Atlas SRV string
         sync: false
       - key: JWT_SECRET_KEY       # python -c "import secrets;print(secrets.token_urlsafe(48))"
@@ -35,11 +29,11 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      - key: SMTP_USERNAME        # Gmail address sending the OTP emails
+      # Render blocks outbound SMTP entirely (confirmed: ports 587 and 465 both time out),
+      # so email must go over HTTPS via Brevo's API, not SMTP_HOST/SMTP_USERNAME/etc.
+      - key: BREVO_API_KEY        # https://app.brevo.com/settings/keys/api
         sync: false
-      - key: SMTP_PASSWORD        # Gmail App Password (https://myaccount.google.com/apppasswords), not your login password
-        sync: false
-      - key: SMTP_FROM_EMAIL      # usually the same as SMTP_USERNAME
+      - key: SMTP_FROM_EMAIL      # the Brevo-verified sender address (Senders & IP -> Senders)
         sync: false
       - key: CORS_ORIGINS         # https://<your-site>.netlify.app  (set after the frontend is live)
         sync: false
