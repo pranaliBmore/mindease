@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import HTTPException, UploadFile, status
 
 from app.config.database import db
@@ -21,7 +23,12 @@ class EmotionService:
     ) -> dict:
         norm_reason = _normalize_reason(reason)
         frame = await decode_image(image_base64=image_base64, image_file=image_file)
-        emotion, confidence, description = analyze_emotion(frame)
+        # analyze_emotion is synchronous and can block for a long time (first-run model
+        # download, CPU-bound DNN inference) - this service runs with a single worker
+        # (the WebSocket manager needs in-process state), so calling it directly here
+        # would freeze the entire event loop, making every other request (even /health)
+        # hang until it finishes. Running it in a thread keeps the loop free.
+        emotion, confidence, description = await asyncio.to_thread(analyze_emotion, frame)
         emotion_doc = build_emotion_document(
             user_id=str(user["_id"]),
             emotion=emotion,
