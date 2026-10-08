@@ -1,8 +1,8 @@
 """The Insights assistant.
 
 Reads the signed-in user's own mood history - face-scan emotions, written
-check-ins, and their community posts - and turns the aggregate picture into a
-few gentle, plain-language observations.
+check-ins, AI chat conversations, and their community posts - and turns the
+aggregate picture into a few gentle, plain-language observations.
 
 Privacy: only aggregate numbers, mood labels and dates are ever sent to the
 language model. The private notes / message text stay encrypted and untouched.
@@ -46,6 +46,7 @@ class InsightsService:
         emo = await db.emotions.find(q, {"emotion": 1, "created_at": 1}).to_list(length=3000)
         solo = await db.solo_analyses.find(q, {"emotion": 1, "created_at": 1}).to_list(length=3000)
         posts = await db.community_posts.find(q, {"mood": 1, "created_at": 1}).to_list(length=3000)
+        chats = await db.chat_messages.find(q, {"detected_emotion": 1, "created_at": 1}).to_list(length=3000)
 
         events: list[tuple] = []
         for r in emo:
@@ -54,6 +55,8 @@ class InsightsService:
             events.append((_aware(r["created_at"]), r.get("emotion") or "neutrality", "written check-in"))
         for r in posts:
             events.append((_aware(r["created_at"]), r.get("mood") or "neutrality", "community post"))
+        for r in chats:
+            events.append((_aware(r["created_at"]), r.get("detected_emotion") or "neutrality", "AI chat"))
         events.sort(key=lambda e: e[0])
         return events
 

@@ -33,6 +33,7 @@ class ChatService:
             user_message=encrypt_text(message),
             ai_reply=encrypt_text(reply),
             provider_used=provider,
+            detected_emotion=engine_out.get("detected_emotion"),
         )
         await db.chat_messages.insert_one(chat_doc)
         return {

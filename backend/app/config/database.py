@@ -11,7 +11,7 @@ async def ensure_indexes() -> None:
     await db.users.create_index("email", unique=True)
     await db.emotions.create_index([("user_id", 1), ("created_at", -1)])
     await db.reasons.create_index("user_id")
-    await db.chat_messages.create_index("user_id")
+    await db.chat_messages.create_index([("user_id", 1), ("created_at", -1)])
     await db.feedback.create_index("user_id")
     await db.connections.create_index([("user_id", 1), ("target_user_id", 1)], unique=True)
     await db.connection_requests.create_index([("from_user_id", 1), ("to_user_id", 1)], unique=True)
