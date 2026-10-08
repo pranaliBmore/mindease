@@ -23,7 +23,19 @@ const Feedback = lazy(() => import("./pages/Feedback"));
 const ThankYou = lazy(() => import("./pages/ThankYou"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Default staleTime is 0, so every mount/tab-focus refetches everything even
+      // when nothing changed - on top of Render's per-request latency that makes
+      // every page feel like it's reloading. Real-time changes (connections, DMs)
+      // already push explicit invalidateQueries calls, so a short stale window here
+      // doesn't risk showing outdated data, it just stops redundant refetches.
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

@@ -1,11 +1,15 @@
+import asyncio
+import logging
 import uuid
 
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 
 from app.config.database import db
 from app.services.ai_engine import ai_engine
 from app.services.local_nlp import classify_emotion_vader
 from app.utils.common import serialize_mongo_id, to_object_id, utc_now
+
+logger = logging.getLogger(__name__)
 
 _SEED_AUTHOR = {"id": "seed", "name": "MindEase Community", "avatar_url": None}
 
@@ -47,7 +51,9 @@ def _post_out(post: dict) -> dict:
 
 
 class CommunityFeedService:
-    async def create_post(self, user: dict, text: str, community_name: str | None = None) -> dict:
+    async def create_post(
+        self, user: dict, text: str, community_name: str | None = None, background_tasks: BackgroundTasks | None = None
+    ) -> dict:
         clean = (text or "").strip()
         if not clean:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="text is required")
@@ -55,23 +61,16 @@ class CommunityFeedService:
         mood_result = classify_emotion_vader(clean)
         mood = mood_result.emotion
 
-        engine = await ai_engine.respond(
-            user_message=clean,
-            conversation_history="",
-            emotion_hint=mood,
-            context_tag="community_post",
-        )
-        ai_reply = (engine.get("message") or "").strip()
-        if not ai_reply:
-            ai_reply = "I’m here with you. Would you like to share a bit more about what’s making this feel heavy today?"
-
         doc = {
             "user_id": str(user["_id"]),
             "author_name": user.get("name", ""),
             "author_avatar_url": user.get("avatar_url"),
             "text": clean,
             "mood": mood,
-            "ai_reply": ai_reply,
+            # Filled in just after the response goes out (see _attach_ai_reply_background)
+            # - the Groq round trip is the slowest single step of posting, and the post
+            # itself doesn't need to wait on it.
+            "ai_reply": "",
             "likes": 0,
             "liked_by": [],
             "raw_comments": [],
@@ -80,7 +79,30 @@ class CommunityFeedService:
         }
         ins = await db.community_posts.insert_one(doc)
         doc["_id"] = ins.inserted_id
+
+        if background_tasks is not None:
+            background_tasks.add_task(self._attach_ai_reply_background, ins.inserted_id, clean, mood)
+        else:
+            await self._attach_ai_reply_background(ins.inserted_id, clean, mood)
+
         return _post_out(doc)
+
+    async def _attach_ai_reply_background(self, post_id, text: str, mood: str) -> None:
+        try:
+            engine = await ai_engine.respond(
+                user_message=text,
+                conversation_history="",
+                emotion_hint=mood,
+                context_tag="community_post",
+            )
+            ai_reply = (engine.get("message") or "").strip()
+            if not ai_reply:
+                ai_reply = "I’m here with you. Would you like to share a bit more about what’s making this feel heavy today?"
+            await db.community_posts.update_one({"_id": post_id}, {"$set": {"ai_reply": ai_reply}})
+        except Exception:  # noqa: BLE001
+            # Runs after the HTTP response is already sent - nowhere to surface this but
+            # the log. The post stays visible with an empty ai_reply if this fails.
+            logger.exception("Background AI reply generation failed for post %s", post_id)
 
     async def feed(self, limit: int = 30, community_name: str | None = None) -> dict:
         cap = max(1, min(limit, 100))
@@ -88,13 +110,17 @@ class CommunityFeedService:
         if community_name:
             query["community_name"] = community_name.strip().lower()
 
-        rows = await db.community_posts.find(query).sort("created_at", -1).limit(cap).to_list(length=cap)
+        # These three reads are independent - running them concurrently instead of one
+        # after another cuts this endpoint's latency to roughly the slowest single
+        # query instead of the sum of all three.
+        rows, trending_rows, user_rows = await asyncio.gather(
+            db.community_posts.find(query).sort("created_at", -1).limit(cap).to_list(length=cap),
+            db.community_posts.find({}).sort("likes", -1).limit(5).to_list(length=5),
+            db.users.find({}, {"_id": 1, "name": 1}).sort("_id", -1).limit(5).to_list(length=5),
+        )
+
         items = [_post_out(r) for r in rows]
-
-        trending_rows = await db.community_posts.find({}).sort("likes", -1).limit(5).to_list(length=5)
         trending_posts = [_post_out(r) for r in trending_rows]
-
-        user_rows = await db.users.find({}, {"_id": 1, "name": 1}).sort("_id", -1).limit(5).to_list(length=5)
         suggested_users = [{"id": str(u["_id"]), "name": u.get("name", "User")} for u in user_rows]
 
         return {

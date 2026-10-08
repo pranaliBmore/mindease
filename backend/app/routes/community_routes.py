@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
 from app.controllers.community_controller import join_community_controller, get_community_controller
 from app.middleware.auth_middleware import get_current_user
@@ -36,8 +36,14 @@ async def community_feed(
 
 
 @router.post("/post", response_model=CommunityPostOut)
-async def community_post(payload: CommunityPostCreateRequest, current_user: dict = Depends(get_current_user)):
-    return await community_feed_service.create_post(current_user, payload.text, payload.community_name)
+async def community_post(
+    payload: CommunityPostCreateRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    return await community_feed_service.create_post(
+        current_user, payload.text, payload.community_name, background_tasks
+    )
 
 
 @router.post("/like", response_model=GenericMessageResponse)
