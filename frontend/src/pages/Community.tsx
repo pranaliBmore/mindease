@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -86,6 +86,8 @@ const Community = () => {
   const [postText, setPostText] = useState("");
   const [posting, setPosting] = useState(false);
 
+  const [unreadPeerIds, setUnreadPeerIds] = useState<Set<string>>(new Set());
+
   const { data: feed, refetch: refetchFeed } = useQuery({
     queryKey: ["communityFeed"],
     queryFn: () => api.getCommunityFeed(30),
@@ -96,7 +98,7 @@ const Community = () => {
     queryFn: () => api.getMe(),
   });
 
-  const { data: connState } = useQuery({
+  const { data: connState, isLoading: loadingConnections } = useQuery({
     queryKey: ["connectionState"],
     queryFn: () => api.getConnectionState(),
   });
@@ -143,9 +145,20 @@ const Community = () => {
   const onWsDm = useCallback(
     (msg: { id: string; from_user_id: string; to_user_id: string; body: string; created_at: string }) => {
       const peer = selectedPeerRef.current;
-      if (!peer) return;
-      const peerId = peer.id;
-      if (msg.from_user_id !== peerId && msg.to_user_id !== peerId) return;
+      const isOpenConversation = !!peer && (msg.from_user_id === peer.id || msg.to_user_id === peer.id);
+      if (!isOpenConversation) {
+        // Message belongs to a conversation that isn't open right now - still surface it
+        // as an unread marker instead of silently dropping it.
+        if (msg.from_user_id !== myId) {
+          setUnreadPeerIds((prev) => {
+            if (prev.has(msg.from_user_id)) return prev;
+            const next = new Set(prev);
+            next.add(msg.from_user_id);
+            return next;
+          });
+        }
+        return;
+      }
       appendUniqueLines([
         {
           id: msg.id,
@@ -156,7 +169,7 @@ const Community = () => {
         },
       ]);
     },
-    [appendUniqueLines],
+    [appendUniqueLines, myId],
   );
 
   const { sendDm } = useSocialWebSocket(token, {
@@ -294,6 +307,12 @@ const Community = () => {
     setSelectedPeer(u);
     setBanner("");
     setError("");
+    setUnreadPeerIds((prev) => {
+      if (!prev.has(u.id)) return prev;
+      const next = new Set(prev);
+      next.delete(u.id);
+      return next;
+    });
   };
 
   const sendChat = () => {
@@ -360,9 +379,10 @@ const Community = () => {
   const outgoing = connState?.outgoing_pending ?? [];
   const connections = connState?.connections ?? [];
 
-  const connectedIds = new Set(connections.map((row) => row.user.id));
-  const outgoingIds = new Set(outgoing.map((row) => row.user.id));
-  const incomingIds = new Set(incoming.map((row) => row.user.id));
+  const connectedIds = useMemo(() => new Set(connections.map((row) => row.user.id)), [connections]);
+  const outgoingIds = useMemo(() => new Set(outgoing.map((row) => row.user.id)), [outgoing]);
+  const incomingIds = useMemo(() => new Set(incoming.map((row) => row.user.id)), [incoming]);
+  const hasUnread = unreadPeerIds.size > 0;
 
   const relationshipLabel = (userId: string): string | null => {
     if (connectedIds.has(userId)) return "Connected";
@@ -438,11 +458,19 @@ const Community = () => {
               <TabsTrigger value="sent" className="text-xs sm:text-sm">
                 Sent
               </TabsTrigger>
-              <TabsTrigger value="pending" className="text-xs sm:text-sm">
+              <TabsTrigger value="pending" className="text-xs sm:text-sm relative">
                 Pending
+                {incoming.length > 0 ? (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-destructive text-[10px] leading-[1.1rem] text-destructive-foreground font-bold text-center">
+                    {incoming.length}
+                  </span>
+                ) : null}
               </TabsTrigger>
-              <TabsTrigger value="friends" className="text-xs sm:text-sm">
+              <TabsTrigger value="friends" className="text-xs sm:text-sm relative">
                 Connected
+                {hasUnread ? (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-destructive" />
+                ) : null}
               </TabsTrigger>
             </TabsList>
 
@@ -575,7 +603,9 @@ const Community = () => {
                 <Clock className="w-4 h-4" />
                 Waiting for the other person to accept.
               </p>
-              {outgoing.length === 0 ? (
+              {loadingConnections ? (
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto mt-4" />
+              ) : outgoing.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No outgoing requests.</p>
               ) : (
                 outgoing.map((row) => (
@@ -593,7 +623,9 @@ const Community = () => {
 
             <TabsContent value="pending" className="mt-4 space-y-2">
               <p className="text-sm text-muted-foreground mb-2">Accept to unlock real-time chat with this person.</p>
-              {incoming.length === 0 ? (
+              {loadingConnections ? (
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto mt-4" />
+              ) : incoming.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No pending requests.</p>
               ) : (
                 incoming.map((row) => (
@@ -630,26 +662,38 @@ const Community = () => {
             </TabsContent>
 
             <TabsContent value="friends" className="mt-4 space-y-2">
-              {connections.length === 0 ? (
+              {loadingConnections ? (
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto mt-4" />
+              ) : connections.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No accepted connections yet.</p>
               ) : (
-                connections.map((row) => (
-                  <button
-                    key={row.request_id}
-                    type="button"
-                    onClick={() => openChat(row.user)}
-                    className={`w-full text-left glass-card p-4 flex items-center gap-3 transition-all hover:shadow-md ${
-                      selectedPeer?.id === row.user.id ? "ring-2 ring-primary" : ""
-                    }`}
-                  >
-                    <Avatar name={row.user.name} avatarUrl={row.user.avatar_url} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{row.user.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{row.user.email_masked}</div>
-                    </div>
-                    <MessageCircle className="w-5 h-5 text-primary shrink-0" />
-                  </button>
-                ))
+                connections.map((row) => {
+                  const unread = unreadPeerIds.has(row.user.id);
+                  return (
+                    <button
+                      key={row.request_id}
+                      type="button"
+                      onClick={() => openChat(row.user)}
+                      className={`w-full text-left glass-card p-4 flex items-center gap-3 transition-all hover:shadow-md ${
+                        selectedPeer?.id === row.user.id ? "ring-2 ring-primary" : ""
+                      }`}
+                    >
+                      <Avatar name={row.user.name} avatarUrl={row.user.avatar_url} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <div className={`truncate ${unread ? "font-bold text-foreground" : "font-medium"}`}>
+                          {row.user.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">{row.user.email_masked}</div>
+                      </div>
+                      {unread ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-destructive text-destructive-foreground font-bold shrink-0">
+                          New
+                        </span>
+                      ) : null}
+                      <MessageCircle className="w-5 h-5 text-primary shrink-0" />
+                    </button>
+                  );
+                })
               )}
             </TabsContent>
           </Tabs>
