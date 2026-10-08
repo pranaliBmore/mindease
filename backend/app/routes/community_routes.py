@@ -4,7 +4,6 @@ from app.controllers.community_controller import join_community_controller, get_
 from app.middleware.auth_middleware import get_current_user
 from app.schemas.community_schema import GenericMessageResponse, JoinCommunityRequest
 from app.schemas.community_feed_schema import (
-    CommunityCommentRequest,
     CommunityFeedResponse,
     CommunityDetailResponse,
     CommunityLikeRequest,
@@ -49,8 +48,3 @@ async def community_post(
 @router.post("/like", response_model=GenericMessageResponse)
 async def community_like(payload: CommunityLikeRequest, current_user: dict = Depends(get_current_user)):
     return await community_feed_service.like(current_user, payload.post_id)
-
-
-@router.post("/comment", response_model=GenericMessageResponse)
-async def community_comment(payload: CommunityCommentRequest, current_user: dict = Depends(get_current_user)):
-    return await community_feed_service.comment(current_user, payload.post_id, payload.text)

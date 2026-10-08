@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import uuid
 
 from fastapi import BackgroundTasks, HTTPException, status
 
@@ -24,26 +23,8 @@ def _author_out(post: dict) -> dict:
     }
 
 
-def _comments_out(post: dict) -> list[dict]:
-    out = []
-    for c in post.get("raw_comments", []):
-        out.append(
-            {
-                "id": c.get("id", ""),
-                "user_id": c.get("user_id", ""),
-                "name": c.get("name") or "A community member",
-                "avatar_url": c.get("avatar_url"),
-                "text": c.get("text", ""),
-                "created_at": c.get("created_at"),
-            },
-        )
-    return out
-
-
 def _post_out(post: dict) -> dict:
     post["author"] = _author_out(post)
-    post["comments"] = _comments_out(post)
-    post.pop("raw_comments", None)
     post.pop("user_id", None)
     post.pop("author_name", None)
     post.pop("author_avatar_url", None)
@@ -73,7 +54,6 @@ class CommunityFeedService:
             "ai_reply": "",
             "likes": 0,
             "liked_by": [],
-            "raw_comments": [],
             "community_name": community_name.strip().lower() if community_name else None,
             "created_at": utc_now(),
         }
@@ -150,34 +130,6 @@ class CommunityFeedService:
             )
             return {"message": "Liked"}
 
-    async def comment(self, user: dict, post_id: str, text: str) -> dict:
-        oid = to_object_id(post_id)
-        clean = (text or "").strip()
-        if not clean:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Comment cannot be empty")
-
-        post = await db.community_posts.find_one({"_id": oid})
-        if not post:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-
-        raw_comments = post.get("raw_comments", [])
-        if raw_comments and raw_comments[-1].get("user_id") == str(user["_id"]) and raw_comments[-1].get("text") == clean:
-            return {"message": "Comment suppressed (duplicate prevention)"}
-
-        new_comment = {
-            "id": str(uuid.uuid4()),
-            "user_id": str(user["_id"]),
-            "name": user.get("name", ""),
-            "avatar_url": user.get("avatar_url"),
-            "text": clean,
-            "created_at": utc_now(),
-        }
-        await db.community_posts.update_one(
-            {"_id": oid},
-            {"$push": {"raw_comments": new_comment}},
-        )
-        return {"message": "Comment added"}
-
     async def seed_if_empty(self) -> None:
         existing = await db.community_posts.count_documents({})
         if existing:
@@ -219,7 +171,6 @@ class CommunityFeedService:
                     "ai_reply": engine["message"],
                     "likes": 0,
                     "liked_by": [],
-                    "raw_comments": [],
                     "created_at": now,
                 },
             )

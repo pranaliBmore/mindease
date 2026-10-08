@@ -227,6 +227,9 @@ const Match = () => {
       const res = await api.revealMatch(session.session_id);
       setBanner(res.message);
       setRevealSent(true);
+      // Show them it actually went through, instead of leaving them on this page
+      // wondering whether the request reached anyone.
+      navigate("/community", { state: { tab: "sent" } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send request");
     }

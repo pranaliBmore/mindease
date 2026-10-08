@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
@@ -49,12 +49,12 @@ function moodBadge(mood: CommunityPost["mood"]) {
 
 const Community = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const selectedPeerRef = useRef<PublicUser | null>(null);
 
   const [token] = useState(() => localStorage.getItem("accessToken"));
-  const [joinedCommunity, setJoinedCommunity] = useState(false);
   const [loadingJoin, setLoadingJoin] = useState(false);
   const [banner, setBanner] = useState("");
   const [error, setError] = useState("");
@@ -81,14 +81,16 @@ const Community = () => {
       return new Set();
     }
   });
-  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
 
   const [postText, setPostText] = useState("");
   const [posting, setPosting] = useState(false);
 
   const [unreadPeerIds, setUnreadPeerIds] = useState<Set<string>>(new Set());
 
-  const [activeTab, setActiveTab] = useState("discover");
+  const requestedTab = (location.state as { tab?: string } | null)?.tab;
+  const [activeTab, setActiveTab] = useState(
+    requestedTab === "sent" || requestedTab === "pending" || requestedTab === "friends" ? requestedTab : "discover",
+  );
 
   const { data: feed, refetch: refetchFeed } = useQuery({
     queryKey: ["communityFeed"],
@@ -109,6 +111,15 @@ const Community = () => {
     queryKey: ["discoverUsers"],
     queryFn: () => api.discoverUsers(24),
   });
+
+  const { data: communityDetails } = useQuery({
+    queryKey: ["communityDetails", COMMUNITY_SLUG],
+    queryFn: () => api.getCommunityDetails(COMMUNITY_SLUG),
+  });
+
+  // Derived from the account, not local state - so it survives a reload instead of
+  // forgetting you joined the moment you refresh the page.
+  const joinedCommunity = me?.communities?.includes(COMMUNITY_SLUG) ?? false;
 
   const myId = me?.id ?? "";
 
@@ -241,7 +252,8 @@ const Community = () => {
     try {
       const res = await api.joinCommunity(COMMUNITY_SLUG);
       setBanner(res.message);
-      setJoinedCommunity(true);
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
+      void queryClient.invalidateQueries({ queryKey: ["communityDetails", COMMUNITY_SLUG] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not join community");
     } finally {
@@ -345,19 +357,6 @@ const Community = () => {
     });
   };
 
-  const addComment = async (postId: string) => {
-    const text = (commentDraft[postId] ?? "").trim();
-    if (!text) return;
-    setError("");
-    try {
-      await api.commentCommunityPost(postId, text);
-      setCommentDraft((prev) => ({ ...prev, [postId]: "" }));
-      await refetchFeed();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not comment");
-    }
-  };
-
   const likePost = async (postId: string) => {
     toggleLike(postId);
     try {
@@ -440,19 +439,36 @@ const Community = () => {
         </motion.div>
 
         <div className="glass-card-strong p-6 mb-8 space-y-4">
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-primary" />
-            Join community (saved to your account)
-          </h2>
-          <button
-            type="button"
-            onClick={() => void handleJoinCommunity()}
-            disabled={loadingJoin || joinedCommunity}
-            className="btn-primary w-full sm:w-auto disabled:opacity-60"
-          >
-            {loadingJoin ? <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> : null}
-            {joinedCommunity ? "Joined" : `Join “${COMMUNITY_SLUG}”`}
-          </button>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-primary" />
+                {joinedCommunity ? "You're a member" : "Join the community"}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                {joinedCommunity
+                  ? "The Community Wall below is unlocked - post, like, and see what others are going through."
+                  : "Unlocks the Community Wall: post what's on your mind and see real posts from other members."}
+              </p>
+            </div>
+            {communityDetails ? (
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary bg-primary/10 px-3 py-1.5 rounded-full shrink-0">
+                <Users className="w-4 h-4" />
+                {communityDetails.member_count} {communityDetails.member_count === 1 ? "member" : "members"}
+              </span>
+            ) : null}
+          </div>
+          {!joinedCommunity ? (
+            <button
+              type="button"
+              onClick={() => void handleJoinCommunity()}
+              disabled={loadingJoin}
+              className="btn-primary w-full sm:w-auto disabled:opacity-60"
+            >
+              {loadingJoin ? <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> : null}
+              Join community
+            </button>
+          ) : null}
         </div>
 
         {banner ? <p className="text-sm text-primary font-medium mb-4 text-center">{banner}</p> : null}
@@ -774,7 +790,7 @@ const Community = () => {
 
         <div className="grid grid-cols-3 gap-4 mb-10">
           {[
-            { icon: Users, label: "Your journey", value: "Together" },
+            { icon: Users, label: "Members here", value: communityDetails ? String(communityDetails.member_count) : "…" },
             { icon: MessageCircle, label: "Support", value: "Live chat" },
             { icon: Heart, label: "Care", value: "Always" },
           ].map(({ icon: Icon, label, value }, i) => (
@@ -794,27 +810,38 @@ const Community = () => {
 
         <div className="space-y-4 mb-10">
           <h2 className="text-xl font-display font-semibold text-foreground">Community Wall</h2>
-          <p className="text-sm text-muted-foreground">
-            Share what's on your mind. Other people here can reply and support you directly - MindEase also
-            chimes in right away so you're never met with silence.
-          </p>
-          <div className="glass-card p-5 space-y-3">
-            <textarea
-              value={postText}
-              onChange={(e) => setPostText(e.target.value)}
-              placeholder="What's going on with you today?"
-              rows={3}
-              className="mindease-input resize-none"
-            />
-            <div className="flex justify-end">
-              <button type="button" onClick={() => void submitPost()} disabled={posting} className="btn-primary">
-                {posting ? <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> : null}
-                Share
-              </button>
+          {!joinedCommunity ? (
+            <div className="glass-card-strong p-8 text-center space-y-3">
+              <UserPlus className="w-8 h-8 text-primary mx-auto" />
+              <h3 className="font-semibold text-foreground">Join to unlock the wall</h3>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                Posts from other members and your own space to share what's on your mind are reserved for
+                community members. Join above - it takes one click - to see and post here.
+              </p>
             </div>
-          </div>
-          <div className="space-y-3">
-            {(feed?.items ?? []).map((p) => {
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Share what's on your mind. Other people here can reply and support you directly - MindEase also
+                chimes in right away so you're never met with silence.
+              </p>
+              <div className="glass-card p-5 space-y-3">
+                <textarea
+                  value={postText}
+                  onChange={(e) => setPostText(e.target.value)}
+                  placeholder="What's going on with you today?"
+                  rows={3}
+                  className="mindease-input resize-none"
+                />
+                <div className="flex justify-end">
+                  <button type="button" onClick={() => void submitPost()} disabled={posting} className="btn-primary">
+                    {posting ? <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> : null}
+                    Share
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {(feed?.items ?? []).map((p) => {
               const badge = moodBadge(p.mood);
               const liked = likedPostIds.has(p.id);
               return (
@@ -845,37 +872,12 @@ const Community = () => {
                     <span className="font-medium text-foreground/80">MindEase: </span>
                     {p.ai_reply}
                   </div>
-
-                  {p.comments.length > 0 ? (
-                    <div className="space-y-3 pt-2 border-t border-border/40">
-                      {p.comments.map((c) => (
-                        <div key={c.id} className="flex items-start gap-2">
-                          <Avatar name={c.name} avatarUrl={c.avatar_url} size="sm" />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-medium text-foreground/80">{c.name}</span>
-                            <p className="text-sm text-muted-foreground break-words">{c.text}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      value={commentDraft[p.id] ?? ""}
-                      onChange={(e) => setCommentDraft((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                      placeholder="Reply with support…"
-                      className="mindease-input flex-1"
-                      onKeyDown={(e) => e.key === "Enter" && void addComment(p.id)}
-                    />
-                    <button type="button" onClick={() => void addComment(p.id)} className="btn-primary whitespace-nowrap">
-                      Reply
-                    </button>
-                  </div>
                 </div>
               );
             })}
-          </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="text-center">

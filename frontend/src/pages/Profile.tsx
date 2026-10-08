@@ -4,8 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import Avatar from "@/components/Avatar";
-import { Camera, Loader2, ShieldCheck, ShieldAlert } from "lucide-react";
-import { api } from "@/lib/api";
+import { Camera, Loader2, LogOut, ShieldCheck, ShieldAlert } from "lucide-react";
+import { api, clearSession } from "@/lib/api";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
@@ -22,6 +22,7 @@ const Profile = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [banner, setBanner] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     if (me) {
@@ -56,6 +57,18 @@ const Profile = () => {
       setError(err instanceof Error ? err.message : "Could not upload photo");
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await api.logout();
+    } catch {
+      /* still clear local session */
+    } finally {
+      clearSession();
+      navigate("/");
     }
   };
 
@@ -153,6 +166,16 @@ const Profile = () => {
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> : null}
             Save changes
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleLogout()}
+            disabled={loggingOut}
+            className="btn-ghost w-full flex items-center justify-center gap-2 disabled:opacity-60"
+          >
+            {loggingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+            Log out
           </button>
         </div>
       </div>
