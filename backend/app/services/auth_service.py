@@ -1,6 +1,5 @@
 import logging
 from datetime import timedelta, timezone
-from pathlib import Path
 
 from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _HIDDEN_FIELDS = ("password_hash", "token_version", "otp_hash", "otp_expires_at", "otp_attempts")
-_ALLOWED_AVATAR_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+_ALLOWED_AVATAR_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 class AuthService:
@@ -46,6 +45,7 @@ class AuthService:
             "access_token": create_access_token(user_id, token_version=0),
             "refresh_token": create_refresh_token(user_id),
             "token_type": "bearer",
+            "email_verified": bool(user_doc.get("email_verified", False)),
         }
 
     async def login(self, payload: LoginRequest) -> dict:
@@ -60,6 +60,7 @@ class AuthService:
             "access_token": create_access_token(user_id, token_version=tv),
             "refresh_token": create_refresh_token(user_id),
             "token_type": "bearer",
+            "email_verified": bool(user.get("email_verified", False)),
         }
 
     async def logout(self, user: dict) -> dict:
@@ -158,8 +159,12 @@ class AuthService:
         return await self.profile(user)
 
     async def upload_avatar(self, user: dict, file: UploadFile) -> dict:
-        ext = _ALLOWED_AVATAR_TYPES.get(file.content_type or "")
-        if not ext:
+        """Stored in MongoDB (Atlas), not the container's local disk. Render's filesystem
+        is ephemeral - anything written to it is wiped on every redeploy/restart, which is
+        exactly why avatars kept disappearing. Atlas is the one piece of infra already
+        proven to survive restarts, so avatars live there now instead of needing a new
+        object-storage service."""
+        if file.content_type not in _ALLOWED_AVATAR_TYPES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only JPEG, PNG, or WebP images are allowed.",
@@ -172,15 +177,18 @@ class AuthService:
             )
 
         user_id = str(user["_id"])
-        upload_dir = Path(settings.avatar_upload_dir)
-        upload_dir.mkdir(parents=True, exist_ok=True)
+        await db.avatars.update_one(
+            {"_id": user_id},
+            {"$set": {"content_type": file.content_type, "data": content, "updated_at": utc_now()}},
+            upsert=True,
+        )
 
-        for stale in upload_dir.glob(f"{user_id}.*"):
-            stale.unlink(missing_ok=True)
-
-        dest = upload_dir / f"{user_id}{ext}"
-        dest.write_bytes(content)
-
-        avatar_url = f"/uploads/avatars/{user_id}{ext}?v={int(utc_now().timestamp())}"
+        avatar_url = f"/api/avatars/{user_id}?v={int(utc_now().timestamp())}"
         await db.users.update_one({"_id": user["_id"]}, {"$set": {"avatar_url": avatar_url}})
         return {"avatar_url": avatar_url}
+
+    async def get_avatar(self, user_id: str) -> dict:
+        doc = await db.avatars.find_one({"_id": user_id})
+        if not doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No avatar")
+        return {"content_type": doc["content_type"], "data": doc["data"]}

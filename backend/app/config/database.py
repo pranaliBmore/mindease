@@ -9,7 +9,7 @@ db: AsyncIOMotorDatabase = client[settings.mongodb_db_name]
 
 async def ensure_indexes() -> None:
     await db.users.create_index("email", unique=True)
-    await db.emotions.create_index("user_id")
+    await db.emotions.create_index([("user_id", 1), ("created_at", -1)])
     await db.reasons.create_index("user_id")
     await db.chat_messages.create_index("user_id")
     await db.feedback.create_index("user_id")

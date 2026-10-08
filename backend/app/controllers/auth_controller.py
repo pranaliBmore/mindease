@@ -36,3 +36,7 @@ async def update_profile_controller(user: dict, payload: UpdateProfileRequest) -
 
 async def upload_avatar_controller(user: dict, file: UploadFile) -> dict:
     return await auth_service.upload_avatar(user, file)
+
+
+async def get_avatar_controller(user_id: str) -> dict:
+    return await auth_service.get_avatar(user_id)

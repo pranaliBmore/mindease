@@ -88,6 +88,24 @@ class SocialService:
             return doc.get("emotion")
         return None
 
+    async def _latest_moods_bulk(self, user_ids: list[str]) -> dict[str, str]:
+        """Latest mood per user_id in two queries total, not two-per-user. The N+1
+        version of this (one _latest_mood() call per candidate, inside a loop) was the
+        main source of discover() being slow - each call is a network round trip to
+        Atlas, and a 60-candidate page was issuing well over a hundred of them."""
+        if not user_ids:
+            return {}
+        pipeline = [
+            {"$match": {"user_id": {"$in": user_ids}}},
+            {"$sort": {"created_at": -1}},
+            {"$group": {"_id": "$user_id", "emotion": {"$first": "$emotion"}}},
+        ]
+        solo_rows = await db.solo_analyses.aggregate(pipeline).to_list(length=len(user_ids))
+        moods = {r["_id"]: r["emotion"] for r in solo_rows if r.get("emotion")}
+        emotion_rows = await db.emotions.aggregate(pipeline).to_list(length=len(user_ids))
+        moods.update({r["_id"]: r["emotion"] for r in emotion_rows if r.get("emotion")})
+        return moods
+
     async def discover(self, user: dict, limit: int = 24) -> list[dict]:
         """Browsable member directory - solves "I don't know their email or face" by
         letting people connect from a face+name they can actually see, instead of only
@@ -107,8 +125,6 @@ class SocialService:
             exclude_ids.add(r["to_user_id"])
         exclude_oids = [to_object_id(x) for x in exclude_ids if x]
 
-        my_mood = await self._latest_mood(uid)
-
         candidates = (
             await db.users.find({"_id": {"$nin": exclude_oids}})
             .sort("_id", -1)
@@ -116,9 +132,13 @@ class SocialService:
             .to_list(length=60)
         )
 
+        candidate_ids = [str(c["_id"]) for c in candidates]
+        moods = await self._latest_moods_bulk([uid, *candidate_ids])
+        my_mood = moods.get(uid)
+
         out = []
         for c in candidates:
-            mood = await self._latest_mood(str(c["_id"]))
+            mood = moods.get(str(c["_id"]))
             item = public_user(c)
             item["mood"] = mood
             item["shares_your_mood"] = bool(my_mood and mood == my_mood)

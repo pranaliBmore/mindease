@@ -14,6 +14,7 @@ from app.config.logging import setup_logging
 from app.config.settings import get_settings
 from app.middleware.rate_limit import limiter
 from app.routes.auth_routes import router as auth_router
+from app.routes.avatar_routes import router as avatar_router
 from app.routes.chat_routes import router as chat_router
 from app.routes.community_routes import router as community_router
 from app.routes.connection_routes import router as connection_router
@@ -139,6 +140,7 @@ async def health(ready: bool = False):
 
 
 app.include_router(auth_router)
+app.include_router(avatar_router)
 app.include_router(emotion_router)
 app.include_router(chat_router)
 app.include_router(community_router)
