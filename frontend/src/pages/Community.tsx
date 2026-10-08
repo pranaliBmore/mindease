@@ -88,6 +88,8 @@ const Community = () => {
 
   const [unreadPeerIds, setUnreadPeerIds] = useState<Set<string>>(new Set());
 
+  const [activeTab, setActiveTab] = useState("discover");
+
   const { data: feed, refetch: refetchFeed } = useQuery({
     queryKey: ["communityFeed"],
     queryFn: () => api.getCommunityFeed(30),
@@ -303,6 +305,16 @@ const Community = () => {
     }
   };
 
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    // Chat panel is a persistent side-column, not tied to the tabs - but leaving it
+    // open while browsing Discover/Search/Sent/Pending reads as "stuck". Close it when
+    // navigating away from Connected.
+    if (value !== "friends") {
+      setSelectedPeer(null);
+    }
+  };
+
   const openChat = (u: PublicUser) => {
     setSelectedPeer(u);
     setBanner("");
@@ -447,7 +459,7 @@ const Community = () => {
         {error ? <p className="text-sm text-destructive mb-4 text-center">{error}</p> : null}
 
         <div className="grid lg:grid-cols-2 gap-8 mb-12 min-w-0">
-          <Tabs defaultValue="discover" className="w-full min-w-0">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full min-w-0">
             <TabsList className="grid w-full grid-cols-5 h-auto flex-wrap gap-1 bg-muted/60 p-2">
               <TabsTrigger value="discover" className="text-xs sm:text-sm">
                 Discover
