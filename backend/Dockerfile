@@ -19,11 +19,13 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY app ./app
 COPY scripts ./scripts
 
-# Model weights are no longer pre-fetched at build time (3 sequential downloads,
-# up to 120s each worst case, was the slow/unpredictable part of the build).
-# They lazy-download on the first real /api/emotion/detect call instead - that one
-# request is ~20-30s slower, everything after it is fast since the files are cached
-# to local disk for the life of the container.
+# Bake the ONNX model weights into the image at build time. Render's container disk
+# is wiped on every redeploy, so without this, the first real /api/emotion/detect
+# request after every deploy had to download ~51MB on the spot - on a slow/congested
+# connection that stalls or takes long enough to look like the feature is broken.
+# A failed download here does not fail the build (see fetch_models.py); the detector
+# still lazy-downloads as a fallback at runtime.
+RUN python -m scripts.fetch_models
 
 # Run as a non-root user.
 RUN useradd -m appuser && chown -R appuser /app

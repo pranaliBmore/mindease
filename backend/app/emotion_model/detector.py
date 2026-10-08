@@ -82,7 +82,12 @@ _YUNET_NMS_THRESHOLD = 0.3
 _MAX_ANALYSIS_DIM = 1280
 _FACE_PAD_FRAC = 0.25
 
-_init_lock = threading.Lock()
+# RLock, not Lock: _get_hse_net/_get_fer_net/_get_yunet each acquire this, then call
+# _ensure_model which acquires it again on the same thread when the model file is
+# missing - a plain Lock would deadlock there forever (reproduced: the process just
+# blocks on the second acquire, no timeout, no error). This only ever showed up on a
+# cold cache, which is why it stayed hidden locally once the weights existed on disk.
+_init_lock = threading.RLock()
 _hse_net = None
 _fer_net = None
 _yunet = None
