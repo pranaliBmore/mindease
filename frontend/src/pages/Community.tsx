@@ -72,15 +72,7 @@ const Community = () => {
   const [chatInput, setChatInput] = useState("");
   const [loadingMessages, setLoadingMessages] = useState(false);
 
-  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem("communityLikedPostIds");
-      if (!raw) return new Set();
-      return new Set(JSON.parse(raw) as string[]);
-    } catch {
-      return new Set();
-    }
-  });
+  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
 
   const [postText, setPostText] = useState("");
   const [posting, setPosting] = useState(false);
@@ -347,23 +339,26 @@ const Community = () => {
     sendDm(selectedPeer.id, text);
   };
 
-  const toggleLike = (postId: string) => {
-    setLikedPostIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(postId)) next.delete(postId);
-      else next.add(postId);
-      localStorage.setItem("communityLikedPostIds", JSON.stringify(Array.from(next)));
-      return next;
-    });
-  };
-
   const likePost = async (postId: string) => {
-    toggleLike(postId);
+    setError("");
     try {
       await api.likeCommunityPost(postId);
       await refetchFeed();
-    } catch {
-      // ignore: client like is still shown; server will sync on refresh
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update like");
+    }
+  };
+
+  const addComment = async (postId: string) => {
+    const text = (commentDraft[postId] ?? "").trim();
+    if (!text) return;
+    setError("");
+    try {
+      await api.commentCommunityPost(postId, text);
+      setCommentDraft((prev) => ({ ...prev, [postId]: "" }));
+      await refetchFeed();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not comment");
     }
   };
 
@@ -822,8 +817,7 @@ const Community = () => {
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                Share what's on your mind. Other people here can reply and support you directly - MindEase also
-                chimes in right away so you're never met with silence.
+                Share what's on your mind. Other real people here can reply and support you directly.
               </p>
               <div className="glass-card p-5 space-y-3">
                 <textarea
@@ -843,7 +837,7 @@ const Community = () => {
               <div className="space-y-3">
                 {(feed?.items ?? []).map((p) => {
               const badge = moodBadge(p.mood);
-              const liked = likedPostIds.has(p.id);
+              const liked = p.liked_by_me;
               return (
                 <div key={p.id} className="glass-card p-5 space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -868,9 +862,32 @@ const Community = () => {
                     </button>
                   </div>
                   <p className="text-sm text-foreground leading-relaxed">{p.text}</p>
-                  <div className="rounded-xl border border-border/40 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground/80">MindEase: </span>
-                    {p.ai_reply}
+
+                  {p.comments.length > 0 ? (
+                    <div className="space-y-3 pt-2 border-t border-border/40">
+                      {p.comments.map((c) => (
+                        <div key={c.id} className="flex items-start gap-2">
+                          <Avatar name={c.name} avatarUrl={c.avatar_url} size="sm" />
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-medium text-foreground/80">{c.name}</span>
+                            <p className="text-sm text-muted-foreground break-words">{c.text}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      value={commentDraft[p.id] ?? ""}
+                      onChange={(e) => setCommentDraft((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                      placeholder="Reply with support…"
+                      className="mindease-input flex-1"
+                      onKeyDown={(e) => e.key === "Enter" && void addComment(p.id)}
+                    />
+                    <button type="button" onClick={() => void addComment(p.id)} className="btn-primary whitespace-nowrap">
+                      Reply
+                    </button>
                   </div>
                 </div>
               );

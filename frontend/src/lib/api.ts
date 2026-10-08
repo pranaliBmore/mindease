@@ -220,14 +220,24 @@ export interface PostAuthor {
   avatar_url: string | null;
 }
 
+export interface CommunityComment {
+  id: string;
+  user_id: string;
+  name: string;
+  avatar_url: string | null;
+  text: string;
+  created_at: string | null;
+}
+
 export interface CommunityPost {
   id: string;
   author: PostAuthor;
   text: string;
   mood: CommunityMood;
   created_at: string;
-  ai_reply: string;
   likes: number;
+  liked_by_me: boolean;
+  comments: CommunityComment[];
 }
 
 export interface CommunityFeedResponse {
@@ -335,6 +345,8 @@ export const api = {
     request<CommunityPost>("/api/community/post", "POST", { text }),
   likeCommunityPost: (post_id: string) =>
     request<GenericMessageResponse>("/api/community/like", "POST", { post_id }),
+  commentCommunityPost: (post_id: string, text: string) =>
+    request<GenericMessageResponse>("/api/community/comment", "POST", { post_id, text }),
   /** Sends a request; the other user must accept before you can chat. */
   sendConnectionRequest: (payload: { target_user_email?: string; target_user_id?: string }) =>
     request<GenericMessageResponse>("/api/connection/request", "POST", payload),

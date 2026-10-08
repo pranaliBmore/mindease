@@ -22,15 +22,15 @@ class CommunityService:
         await db.users.update_one({"_id": user["_id"]}, {"$addToSet": {"communities": community_key}})
         return {"message": f"Joined community: {community_key}"}
 
-    async def get_details(self, community_name: str) -> dict:
+    async def get_details(self, community_name: str, viewer_id: str | None = None) -> dict:
         community_key = community_name.strip().lower()
         if not community_key:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="community_name is required")
-        
+
         community = await db.communities.find_one({"name": community_key})
         member_count = len(community.get("members", [])) if community else 0
-        feed = await community_feed_service.feed(limit=10, community_name=community_key)
-        
+        feed = await community_feed_service.feed(limit=10, community_name=community_key, viewer_id=viewer_id)
+
         return {
             "name": community_key,
             "member_count": member_count,

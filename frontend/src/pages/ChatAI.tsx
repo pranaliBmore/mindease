@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   ScanFace,
   Users,
+  HeartHandshake,
   Trash2,
   Wind,
   Leaf,
@@ -271,6 +272,14 @@ const ChatAI = () => {
           title="Community"
         >
           <Users className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => navigate("/match")}
+          aria-label="Don't know anyone? Find a match"
+          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          title="Don't know anyone? Find a match"
+        >
+          <HeartHandshake className="w-4 h-4" />
         </button>
         <button
           onClick={clearChat}

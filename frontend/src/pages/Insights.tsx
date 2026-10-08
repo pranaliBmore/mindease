@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
+import FindMatchPrompt from "@/components/FindMatchPrompt";
 import {
   ArrowLeft,
   Sparkles,
@@ -97,6 +98,8 @@ const Insights = () => {
 
       <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 relative z-10">
         <div className="max-w-2xl mx-auto space-y-5">
+          <FindMatchPrompt />
+
           <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
             {(["week", "month"] as const).map((r) => (
               <button

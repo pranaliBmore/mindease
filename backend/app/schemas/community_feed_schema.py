@@ -15,10 +15,24 @@ class CommunityLikeRequest(BaseModel):
     post_id: str = Field(min_length=1, max_length=64)
 
 
+class CommunityCommentRequest(BaseModel):
+    post_id: str = Field(min_length=1, max_length=64)
+    text: str = Field(min_length=1, max_length=500)
+
+
 class PostAuthor(BaseModel):
     id: str
     name: str
     avatar_url: Optional[str] = None
+
+
+class CommunityCommentOut(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    avatar_url: Optional[str] = None
+    text: str
+    created_at: Optional[datetime] = None
 
 
 class CommunityPostOut(BaseModel):
@@ -27,8 +41,9 @@ class CommunityPostOut(BaseModel):
     text: str
     mood: Mood
     created_at: datetime
-    ai_reply: str
     likes: int = 0
+    liked_by_me: bool = False
+    comments: list[CommunityCommentOut] = []
     community_name: Optional[str] = None
 
 class CommunityDetailResponse(BaseModel):

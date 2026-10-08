@@ -1,14 +1,11 @@
 import asyncio
-import logging
+import uuid
 
-from fastapi import BackgroundTasks, HTTPException, status
+from fastapi import HTTPException, status
 
 from app.config.database import db
-from app.services.ai_engine import ai_engine
 from app.services.local_nlp import classify_emotion_vader
 from app.utils.common import serialize_mongo_id, to_object_id, utc_now
-
-logger = logging.getLogger(__name__)
 
 _SEED_AUTHOR = {"id": "seed", "name": "MindEase Community", "avatar_url": None}
 
@@ -23,8 +20,28 @@ def _author_out(post: dict) -> dict:
     }
 
 
-def _post_out(post: dict) -> dict:
+def _comments_out(post: dict) -> list[dict]:
+    out = []
+    for c in post.get("raw_comments", []):
+        out.append(
+            {
+                "id": c.get("id", ""),
+                "user_id": c.get("user_id", ""),
+                "name": c.get("name") or "A community member",
+                "avatar_url": c.get("avatar_url"),
+                "text": c.get("text", ""),
+                "created_at": c.get("created_at"),
+            },
+        )
+    return out
+
+
+def _post_out(post: dict, viewer_id: str | None = None) -> dict:
     post["author"] = _author_out(post)
+    post["comments"] = _comments_out(post)
+    post["liked_by_me"] = bool(viewer_id) and viewer_id in post.get("liked_by", [])
+    post.pop("raw_comments", None)
+    post.pop("liked_by", None)
     post.pop("user_id", None)
     post.pop("author_name", None)
     post.pop("author_avatar_url", None)
@@ -32,9 +49,7 @@ def _post_out(post: dict) -> dict:
 
 
 class CommunityFeedService:
-    async def create_post(
-        self, user: dict, text: str, community_name: str | None = None, background_tasks: BackgroundTasks | None = None
-    ) -> dict:
+    async def create_post(self, user: dict, text: str, community_name: str | None = None) -> dict:
         clean = (text or "").strip()
         if not clean:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="text is required")
@@ -48,43 +63,17 @@ class CommunityFeedService:
             "author_avatar_url": user.get("avatar_url"),
             "text": clean,
             "mood": mood,
-            # Filled in just after the response goes out (see _attach_ai_reply_background)
-            # - the Groq round trip is the slowest single step of posting, and the post
-            # itself doesn't need to wait on it.
-            "ai_reply": "",
             "likes": 0,
             "liked_by": [],
+            "raw_comments": [],
             "community_name": community_name.strip().lower() if community_name else None,
             "created_at": utc_now(),
         }
         ins = await db.community_posts.insert_one(doc)
         doc["_id"] = ins.inserted_id
+        return _post_out(doc, viewer_id=str(user["_id"]))
 
-        if background_tasks is not None:
-            background_tasks.add_task(self._attach_ai_reply_background, ins.inserted_id, clean, mood)
-        else:
-            await self._attach_ai_reply_background(ins.inserted_id, clean, mood)
-
-        return _post_out(doc)
-
-    async def _attach_ai_reply_background(self, post_id, text: str, mood: str) -> None:
-        try:
-            engine = await ai_engine.respond(
-                user_message=text,
-                conversation_history="",
-                emotion_hint=mood,
-                context_tag="community_post",
-            )
-            ai_reply = (engine.get("message") or "").strip()
-            if not ai_reply:
-                ai_reply = "I’m here with you. Would you like to share a bit more about what’s making this feel heavy today?"
-            await db.community_posts.update_one({"_id": post_id}, {"$set": {"ai_reply": ai_reply}})
-        except Exception:  # noqa: BLE001
-            # Runs after the HTTP response is already sent - nowhere to surface this but
-            # the log. The post stays visible with an empty ai_reply if this fails.
-            logger.exception("Background AI reply generation failed for post %s", post_id)
-
-    async def feed(self, limit: int = 30, community_name: str | None = None) -> dict:
+    async def feed(self, limit: int = 30, community_name: str | None = None, viewer_id: str | None = None) -> dict:
         cap = max(1, min(limit, 100))
         query = {}
         if community_name:
@@ -99,8 +88,8 @@ class CommunityFeedService:
             db.users.find({}, {"_id": 1, "name": 1}).sort("_id", -1).limit(5).to_list(length=5),
         )
 
-        items = [_post_out(r) for r in rows]
-        trending_posts = [_post_out(r) for r in trending_rows]
+        items = [_post_out(r, viewer_id) for r in rows]
+        trending_posts = [_post_out(r, viewer_id) for r in trending_rows]
         suggested_users = [{"id": str(u["_id"]), "name": u.get("name", "User")} for u in user_rows]
 
         return {
@@ -130,6 +119,34 @@ class CommunityFeedService:
             )
             return {"message": "Liked"}
 
+    async def comment(self, user: dict, post_id: str, text: str) -> dict:
+        oid = to_object_id(post_id)
+        clean = (text or "").strip()
+        if not clean:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Comment cannot be empty")
+
+        post = await db.community_posts.find_one({"_id": oid})
+        if not post:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+        raw_comments = post.get("raw_comments", [])
+        if raw_comments and raw_comments[-1].get("user_id") == str(user["_id"]) and raw_comments[-1].get("text") == clean:
+            return {"message": "Comment suppressed (duplicate prevention)"}
+
+        new_comment = {
+            "id": str(uuid.uuid4()),
+            "user_id": str(user["_id"]),
+            "name": user.get("name", ""),
+            "avatar_url": user.get("avatar_url"),
+            "text": clean,
+            "created_at": utc_now(),
+        }
+        await db.community_posts.update_one(
+            {"_id": oid},
+            {"$push": {"raw_comments": new_comment}},
+        )
+        return {"message": "Comment added"}
+
     async def seed_if_empty(self) -> None:
         existing = await db.community_posts.count_documents({})
         if existing:
@@ -155,25 +172,18 @@ class CommunityFeedService:
             {"text": "Overwhelmed by the news. Taking a break from my phone for the evening.", "mood": "stress"},
             {"text": "Reached out to my sister after months. Nervous, but glad I did.", "mood": "anxiety"},
         ]
-        docs = []
-        for item in seed:
-            engine = await ai_engine.respond(
-                user_message=item["text"],
-                conversation_history="",
-                emotion_hint=item["mood"],
-                context_tag="community_seed",
-            )
-            docs.append(
-                {
-                    "user_id": "seed",
-                    "text": item["text"],
-                    "mood": item["mood"],
-                    "ai_reply": engine["message"],
-                    "likes": 0,
-                    "liked_by": [],
-                    "created_at": now,
-                },
-            )
+        docs = [
+            {
+                "user_id": "seed",
+                "text": item["text"],
+                "mood": item["mood"],
+                "likes": 0,
+                "liked_by": [],
+                "raw_comments": [],
+                "created_at": now,
+            }
+            for item in seed
+        ]
         await db.community_posts.insert_many(docs)
 
 
