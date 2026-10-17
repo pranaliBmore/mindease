@@ -116,6 +116,17 @@ async def startup_event() -> None:
             logger.warning(
                 "APP_ENV=production and DATA_ENCRYPTION_KEY is not set - private text will be stored unencrypted."
             )
+    if settings.require_email_verification:
+        from app.services.email_service import email_transport
+
+        transport = email_transport()
+        if transport is None:
+            logger.warning(
+                "Email verification is on but no email transport is configured (EMAIL_RELAY_URL, or "
+                "SMTP_HOST plus SMTP_FROM_EMAIL) - OTP codes will only be written to this log."
+            )
+        else:
+            logger.info("OTP emails will be sent via %s", transport)
     await ensure_indexes()
     logger.info("Indexes initialized")
     try:

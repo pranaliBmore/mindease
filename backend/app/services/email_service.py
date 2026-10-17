@@ -1,23 +1,28 @@
 """Sends transactional email.
 
-Two transports:
-- Brevo's HTTP API (https://api.brevo.com) when BREVO_API_KEY is set - sends over HTTPS,
-  so it works on hosts that block outbound SMTP (confirmed on Render: both port 587 and
-  465 timed out connecting to smtp.gmail.com - a hard platform-level network block, not a
-  config issue). This is the production path.
-- Raw SMTP via aiosmtplib otherwise - the Python equivalent of Nodemailer (same protocol,
-  same job; there's no Node runtime in this backend). Works fine for local dev.
+Two transports, picked automatically:
+- Netlify relay when EMAIL_RELAY_URL is set (production). Render's free instances block
+  outbound SMTP ports 25/465/587 (confirmed: smtp.gmail.com timed out on both 587 and
+  465), so the backend POSTs the message over HTTPS to the Netlify Function at
+  frontend/netlify/functions/send-email.mjs, which sends it through Gmail with Nodemailer.
+  Netlify Functions are allowed to open SMTP connections. Authenticated with a shared
+  secret (EMAIL_RELAY_SECRET) so the function can't be used as an open relay.
+- Plain SMTP via the standard library (smtplib + email.message) otherwise - e.g. Gmail
+  with an App Password. Used for local dev, or any host that allows outbound SMTP.
 
 Dev fallback: with neither configured, the OTP is logged instead of emailed, mirroring the
 app's existing "optional, fail soft" pattern for AI providers and DATA_ENCRYPTION_KEY.
 """
 
+import asyncio
 import html
 import logging
 import random
+import smtplib
+import ssl
 from email.message import EmailMessage
+from email.utils import formataddr
 
-import aiosmtplib
 import httpx
 from fastapi import HTTPException, status
 
@@ -135,113 +140,96 @@ def _otp_email_html(name: str, otp: str, expire_minutes: int, affirmation: str) 
 </html>"""
 
 
-async def _attempt_send(message: EmailMessage, port: int, implicit_tls: bool) -> None:
-    """One connection attempt. 465 = implicit TLS from the first byte; 587/anything
-    else = plaintext connect then STARTTLS. Hosts that block one submission port
-    sometimes allow the other, so callers try both before giving up."""
-    if implicit_tls:
-        await aiosmtplib.send(
-            message,
-            hostname=settings.smtp_host,
-            port=port,
-            username=settings.smtp_username or None,
-            password=settings.smtp_password or None,
-            use_tls=True,
-            timeout=15,
-        )
+def _smtp_send_blocking(message: EmailMessage, port: int) -> None:
+    """One delivery attempt with the stdlib client. 465 = implicit TLS from the first
+    byte; anything else = plaintext connect then STARTTLS (587)."""
+    context = ssl.create_default_context()
+    if port == 465:
+        server: smtplib.SMTP = smtplib.SMTP_SSL(settings.smtp_host, port, timeout=15, context=context)
     else:
-        await aiosmtplib.send(
-            message,
-            hostname=settings.smtp_host,
-            port=port,
-            username=settings.smtp_username or None,
-            password=settings.smtp_password or None,
-            start_tls=True,
-            timeout=15,
-        )
+        server = smtplib.SMTP(settings.smtp_host, port, timeout=15)
+    with server:
+        if port != 465:
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+        if settings.smtp_username:
+            server.login(settings.smtp_username, settings.smtp_password)
+        server.send_message(message)
 
 
-async def _send_via_brevo(to_email: str, to_name: str, subject: str, text: str, html_body: str) -> None:
+async def _send_via_relay(to_email: str, to_name: str, subject: str, text: str, html_body: str) -> None:
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(
-                "https://api.brevo.com/v3/smtp/email",
-                headers={
-                    "api-key": settings.brevo_api_key,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-                json={
-                    "sender": {"name": settings.smtp_from_name, "email": settings.smtp_from_email},
-                    "to": [{"email": to_email, "name": to_name or to_email}],
-                    "subject": subject,
-                    "htmlContent": html_body,
-                    "textContent": text,
-                },
+                settings.email_relay_url,
+                headers={"Authorization": f"Bearer {settings.email_relay_secret}"},
+                json={"to": to_email, "toName": to_name, "subject": subject, "text": text, "html": html_body},
             )
-        resp.raise_for_status()
-        logger.info("OTP email sent to %s via Brevo", to_email)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Brevo send failed for %s", to_email)
+    except httpx.HTTPError as exc:
+        logger.exception("Email relay request failed for %s", to_email)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not send the verification email. Please try again shortly.",
         ) from exc
+    if resp.status_code >= 400:
+        # The relay returns the reason (bad secret, Gmail login rejected, ...) - log it
+        # verbatim so a misconfiguration is obvious from the Render logs.
+        logger.error("Email relay rejected email to %s: HTTP %s %s", to_email, resp.status_code, resp.text[:500])
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not send the verification email. Please try again shortly.",
+        )
+    logger.info("OTP email sent to %s via Netlify relay", to_email)
 
 
 async def _send_via_smtp(to_email: str, to_name: str, subject: str, text: str, html_body: str) -> None:
     message = EmailMessage()
-    message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
-    message["To"] = to_email
+    message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_email))
+    message["To"] = formataddr((to_name, to_email)) if to_name else to_email
     message["Subject"] = subject
     message.set_content(text)
     message.add_alternative(html_body, subtype="html")
 
-    # Try the configured port/mode first, then the other submission port as a
-    # fallback - some hosts block 587 (STARTTLS) but allow 465 (implicit TLS), or
-    # vice versa, and there's no way to know which without just trying both.
-    configured_port = settings.smtp_port
-    configured_implicit = configured_port == 465
-    fallback_port = 465 if configured_port != 465 else 587
+    # Try the configured port first, then the other submission port - some hosts block
+    # 587 (STARTTLS) but allow 465 (implicit TLS), or vice versa. smtplib is blocking, so
+    # it runs in a worker thread to keep the event loop free.
+    ports = [settings.smtp_port, 465 if settings.smtp_port != 465 else 587]
+    last_error: Exception | None = None
+    for port in ports:
+        try:
+            await asyncio.to_thread(_smtp_send_blocking, message, port)
+            logger.info("OTP email sent to %s via %s:%s", to_email, settings.smtp_host, port)
+            return
+        except smtplib.SMTPAuthenticationError as exc:
+            # Wrong address/App Password - retrying on another port can't fix that.
+            logger.error("SMTP login rejected for %s: %s", settings.smtp_username, exc)
+            last_error = exc
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SMTP send to %s via port %s failed: %s", to_email, port, exc)
+            last_error = exc
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="Could not send the verification email. Please try again shortly.",
+    ) from last_error
 
-    first_error: Exception | None = None
-    try:
-        await _attempt_send(message, configured_port, configured_implicit)
-        logger.info("OTP email sent to %s via %s:%s", to_email, settings.smtp_host, configured_port)
-        return
-    except Exception as exc:  # noqa: BLE001
-        first_error = exc
-        logger.warning(
-            "SMTP send to %s via port %s failed (%s), retrying on port %s",
-            to_email,
-            configured_port,
-            exc,
-            fallback_port,
-        )
 
-    try:
-        await _attempt_send(message, fallback_port, fallback_port == 465)
-        logger.info(
-            "OTP email sent to %s via %s:%s (fallback port)", to_email, settings.smtp_host, fallback_port,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception(
-            "Failed to send OTP email to %s on both port %s and fallback port %s",
-            to_email,
-            configured_port,
-            fallback_port,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not send the verification email. Please try again shortly.",
-        ) from (exc if first_error is None else first_error)
+def email_transport() -> str | None:
+    """Which transport send_otp_email will use: "relay", "smtp", or None (log only)."""
+    if settings.email_relay_url:
+        return "relay"
+    if settings.smtp_host and settings.smtp_from_email:
+        return "smtp"
+    return None
 
 
 async def send_otp_email(to_email: str, to_name: str, otp: str) -> None:
     affirmation = random.choice(_AFFIRMATIONS)
     subject = "A little sunshine for you ☀️ - your MindEase code inside"
 
-    if not settings.smtp_from_email or (not settings.brevo_api_key and not settings.smtp_host):
+    transport = email_transport()
+    if transport is None:
         logger.warning(
             "No email transport configured; verification code for %s is %s (dev fallback, not emailed)",
             to_email,
@@ -252,7 +240,7 @@ async def send_otp_email(to_email: str, to_name: str, otp: str) -> None:
     text = _otp_email_text(to_name, otp, settings.otp_expire_minutes, affirmation)
     html_body = _otp_email_html(to_name, otp, settings.otp_expire_minutes, affirmation)
 
-    if settings.brevo_api_key:
-        await _send_via_brevo(to_email, to_name, subject, text, html_body)
+    if transport == "relay":
+        await _send_via_relay(to_email, to_name, subject, text, html_body)
     else:
         await _send_via_smtp(to_email, to_name, subject, text, html_body)

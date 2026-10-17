@@ -10,6 +10,14 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# netlify/functions/send-email.mjs sends the signup OTP emails via Gmail (Nodemailer) for
+# the Render backend. Set GMAIL_USER, GMAIL_APP_PASSWORD and EMAIL_RELAY_SECRET in the
+# Netlify dashboard. Served at /.netlify/functions/send-email.
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["nodemailer"]
+
 # SPA fallback: every route serves index.html so client-side routing works.
 [[redirects]]
   from = "/*"

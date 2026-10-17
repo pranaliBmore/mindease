@@ -36,6 +36,19 @@ export function hasValidSession(): boolean {
 export function clearSession(): void {
   localStorage.removeItem("accessToken");
   localStorage.removeItem("refreshToken");
+  localStorage.removeItem(EMAIL_VERIFIED_KEY);
+}
+
+const EMAIL_VERIFIED_KEY = "emailVerified";
+
+export function setEmailVerified(verified: boolean): void {
+  localStorage.setItem(EMAIL_VERIFIED_KEY, verified ? "true" : "false");
+}
+
+/** True when the signed-in account still has to enter its emailed OTP. Synchronous for
+ * the same reason as hasValidSession: route guards decide before rendering. */
+export function needsEmailVerification(): boolean {
+  return localStorage.getItem(EMAIL_VERIFIED_KEY) === "false";
 }
 
 /** Resolves a backend-relative media path (e.g. an avatar_url) against the API origin. */

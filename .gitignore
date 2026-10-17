@@ -53,3 +53,7 @@ npm-debug.log*
 # Build
 dist/
 build/
+
+#env
+.env.example
+.env.production.example

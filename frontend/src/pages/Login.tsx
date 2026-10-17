@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import { Heart, Eye, EyeOff, Mail, Lock, User } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, setEmailVerified } from "@/lib/api";
 
 const Login = () => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -33,6 +33,7 @@ const Login = () => {
         : await api.login({ email: email.trim(), password });
       localStorage.setItem("accessToken", tokens.access_token);
       localStorage.setItem("refreshToken", tokens.refresh_token);
+      setEmailVerified(tokens.email_verified);
       navigate(tokens.email_verified ? "/home" : "/verify-email");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");

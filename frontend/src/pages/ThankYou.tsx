@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import { Heart, Sparkles } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, clearSession } from "@/lib/api";
 
 const ThankYou = () => {
   const navigate = useNavigate();
@@ -16,8 +16,7 @@ const ThankYou = () => {
     } catch {
       /* still clear local session */
     } finally {
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
+      clearSession();
       navigate("/");
     }
   };

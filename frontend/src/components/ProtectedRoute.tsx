@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { hasValidSession } from "@/lib/api";
+import { hasValidSession, needsEmailVerification } from "@/lib/api";
 
 interface ProtectedRouteProps {
   children: ReactElement;
@@ -18,6 +18,11 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 
   if (!hasValidSession()) {
     return <Navigate to="/" replace state={{ from: location.pathname }} />;
+  }
+
+  // An unverified account can't reach the app until it enters the OTP from its inbox.
+  if (needsEmailVerification() && location.pathname !== "/verify-email") {
+    return <Navigate to="/verify-email" replace />;
   }
 
   return children;

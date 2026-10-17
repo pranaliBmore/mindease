@@ -19,8 +19,8 @@ services:
         value: openai/gpt-oss-20b
       - key: CORS_ORIGIN_REGEX
         value: ""
-      - key: SMTP_FROM_NAME
-        value: MindEase
+      - key: REQUIRE_EMAIL_VERIFICATION   # new accounts must enter the OTP emailed to them
+        value: "true"
       - key: MONGODB_URL          # MongoDB Atlas SRV string
         sync: false
       - key: JWT_SECRET_KEY       # python -c "import secrets;print(secrets.token_urlsafe(48))"
@@ -29,11 +29,11 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      # Render blocks outbound SMTP entirely (confirmed: ports 587 and 465 both time out),
-      # so email must go over HTTPS via Brevo's API, not SMTP_HOST/SMTP_USERNAME/etc.
-      - key: BREVO_API_KEY        # https://app.brevo.com/settings/keys/api
+      # Render's free plan blocks outbound SMTP (ports 587 and 465 both time out), so OTP
+      # emails go over HTTPS to the Netlify Function, which sends them via Gmail.
+      - key: EMAIL_RELAY_URL      # https://<your-site>.netlify.app/.netlify/functions/send-email
         sync: false
-      - key: SMTP_FROM_EMAIL      # the Brevo-verified sender address (Senders & IP -> Senders)
+      - key: EMAIL_RELAY_SECRET   # same value as EMAIL_RELAY_SECRET on Netlify
         sync: false
       - key: CORS_ORIGINS         # https://<your-site>.netlify.app  (set after the frontend is live)
         sync: false

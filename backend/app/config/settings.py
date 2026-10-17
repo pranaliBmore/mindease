@@ -35,8 +35,14 @@ class Settings(BaseSettings):
     # Fernet key (urlsafe base64, 32 bytes). Blank = private text is stored as plaintext.
     data_encryption_key: str = ""
 
-    # SMTP (used to email signup verification codes). Blank host = dev fallback:
-    # the OTP is logged instead of emailed, so local dev needs no mail account.
+    # Signup verification email. Two ways to send, see app/services/email_service.py:
+    # - EMAIL_RELAY_URL set (production): POST to the Netlify Function that sends via
+    #   Gmail with Nodemailer - Render's free plan blocks outbound SMTP, Netlify doesn't.
+    # - otherwise SMTP below, sent directly with Python's smtplib (local dev).
+    # Neither configured = dev fallback: the OTP is logged instead of emailed.
+    email_relay_url: str = ""
+    email_relay_secret: str = ""
+
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_username: str = ""
@@ -45,18 +51,14 @@ class Settings(BaseSettings):
     smtp_from_name: str = "MindEase"
     smtp_use_tls: bool = True
 
-    # Brevo HTTP email API (https://app.brevo.com/settings/keys/api) - sends over HTTPS,
-    # so it works on hosts (e.g. Render) that block outbound SMTP. Takes priority over
-    # SMTP above when set; SMTP stays as the local-dev path since it works fine there.
-    brevo_api_key: str = ""
 
     otp_expire_minutes: int = 10
     otp_length: int = 6
     otp_max_attempts: int = 5
-    # Temporary kill switch while Brevo/SMTP email delivery is unresolved in production -
-    # new accounts are marked verified immediately, no OTP generated or sent. Flip back to
-    # true once email sending is confirmed working.
-    require_email_verification: bool = False
+    # New accounts must confirm a 6-digit OTP emailed to them (Netlify relay or SMTP, see
+    # email_service). Set REQUIRE_EMAIL_VERIFICATION=false only as an emergency kill
+    # switch if email delivery breaks - accounts are then marked verified on signup.
+    require_email_verification: bool = True
 
     avatar_upload_dir: str = "uploads/avatars"
     avatar_max_bytes: int = 5 * 1024 * 1024

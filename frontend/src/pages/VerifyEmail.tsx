@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import FloatingOrbs from "@/components/FloatingOrbs";
 import { MailCheck, Loader2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, setEmailVerified } from "@/lib/api";
 
 const RESEND_COOLDOWN_SECONDS = 30;
 
@@ -23,6 +23,7 @@ const VerifyEmail = () => {
 
   useEffect(() => {
     if (me?.email_verified) {
+      setEmailVerified(true);
       navigate("/home", { replace: true });
     }
   }, [me, navigate]);
@@ -57,6 +58,7 @@ const VerifyEmail = () => {
     setVerifying(true);
     try {
       await api.verifyEmail(clean);
+      setEmailVerified(true);
       await refetch();
       navigate("/home", { replace: true });
     } catch (err) {
